@@ -369,7 +369,7 @@ export function LocationPicker({ value, onChange, className, focus, focusZoom = 
       <div className="relative">
         <div
           ref={mapRef}
-          className="h-64 w-full rounded-md border border-sky-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2"
+          className="h-64 w-full rounded-md border border-sky-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 sm:h-80 md:h-96"
           tabIndex={0}
         />
         {isPlacing && ghostPoint && (
