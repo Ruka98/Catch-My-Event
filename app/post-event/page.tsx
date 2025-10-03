@@ -1,4 +1,4 @@
-// page.tsx - Updated form with required map location
+// page.tsx - Updated form with improved map spacing for mobile
 "use client"
 
 import type React from "react"
@@ -346,11 +346,13 @@ function PostEventContent() {
                           <span className="text-red-500 ml-2">{locationError}</span>
                         )}
                       </Label>
-                      <LocationPicker 
-                        value={selectedLocation} 
-                        onChange={handleLocationChange} 
-                        className="mt-2" 
-                      />
+                      <div className="mt-2 rounded-lg overflow-hidden border border-gray-300">
+                        <LocationPicker 
+                          value={selectedLocation} 
+                          onChange={handleLocationChange} 
+                          className="w-full h-64 sm:h-80 md:h-96" 
+                        />
+                      </div>
                       <p className="text-xs text-gray-500 mt-2">
                         Click the marker tool, then tap the map or drag the marker icon onto the exact venue location
                       </p>
