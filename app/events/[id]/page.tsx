@@ -49,7 +49,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const imageUrl = event.image_url ?? undefined;
 
   return {
-    title: `${event.title} | Catch My Event`,
+    title: event.title,
     description,
     alternates: {
       canonical: `/events/${event.id}`,
@@ -142,12 +142,26 @@ export default async function EventPage({ params }: PageProps) {
     return Number.isNaN(candidate.valueOf()) ? null : candidate;
   })();
 
+  const organizerProfile = event.profiles;
+  const organizer = organizerProfile
+    ? {
+        "@type": "Person",
+        name: organizerProfile.display_name || "Community Host",
+        url: `https://catchmyevent.com/profile/${event.user_id}`,
+      }
+    : {
+        "@type": "Organization",
+        name: "Catch My Event",
+        url: "https://catchmyevent.com",
+      };
+
   const structuredData = {
     "@context": "https://schema.org",
     "@type": "Event",
     name: event.title,
     description: event.description ?? `Discover ${event.title} on Catch My Event`,
     startDate: startDateTime?.toISOString() ?? event.date,
+    endDate: startDateTime?.toISOString() ?? event.date, // Assuming same day event if no end date
     eventStatus: "https://schema.org/EventScheduled",
     eventAttendanceMode: hasCoordinates
       ? "https://schema.org/OfflineEventAttendanceMode"
@@ -178,13 +192,17 @@ export default async function EventPage({ params }: PageProps) {
             price: priceValue,
             priceCurrency: "LKR",
             availability: "https://schema.org/InStock",
+            url: `https://catchmyevent.com/events/${event.id}`,
+            validFrom: event.created_at,
           }
         : undefined,
-    organizer: {
-      "@type": "Organization",
-      name: "Catch My Event",
-      url: "https://catchmyevent.com",
-    },
+    organizer: organizer,
+    performer: organizer, // Assuming organizer is the performer
+    attendee: confirmedAttendees.map((attendee) => ({
+      "@type": "Person",
+      name: formatAttendeeName(attendee),
+      url: `https://catchmyevent.com/profile/${attendee.user_id}`,
+    })),
     url: `https://catchmyevent.com/events/${event.id}`,
   };
 
@@ -275,7 +293,7 @@ export default async function EventPage({ params }: PageProps) {
                       {[event.venue, event.address, event.city].filter(Boolean).join(", ") || "Sri Lanka"}
                     </p>
                     {hasCoordinates && (
-                      <p className="text-xs text-gray-500">Tap "View on map" to see the precise pin.</p>
+                      <p className="text-xs text-gray-500">Tap &quot;View on map&quot; to see the precise pin.</p>
                     )}
                   </div>
 

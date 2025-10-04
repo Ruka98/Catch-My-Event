@@ -61,7 +61,7 @@ export default function FinishProfilePage() {
           throw updateError
         }
       } else {
-        router.replace("/dashboard")
+        router.replace("/profile")
       }
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred")

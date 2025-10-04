@@ -28,6 +28,7 @@ import {
   toggleEventLike,
   type EventWithProfile,
 } from "@/lib/supabase/events.client"
+import type { EventWithCounts } from "@/lib/supabase/types"
 import type { User } from "@supabase/supabase-js"
 
 type FeedComment = {
@@ -37,7 +38,11 @@ type FeedComment = {
   profiles: { display_name: string; avatar_url?: string | null } | null
 }
 
-type EventCardProps = { event: EventWithProfile; user: User | null; onUpdate: () => void }
+function isEventWithCounts(event: EventWithProfile | EventWithCounts): event is EventWithCounts {
+  return "attendee_count" in event && "user_is_attending" in event
+}
+
+type EventCardProps = { event: EventWithProfile | EventWithCounts; user: User | null; onUpdate: () => void }
 
 export function EventCard({ event, user, onUpdate }: EventCardProps) {
   const { toast } = useToast()
@@ -54,10 +59,17 @@ export function EventCard({ event, user, onUpdate }: EventCardProps) {
   // optimistic state
   const [optimisticLikes, setOptimisticLikes] = useState(event.like_count ?? 0)
   const [optimisticIsLiked, setOptimisticIsLiked] = useState(event.user_has_liked ?? false)
-  const [optimisticAttending, setOptimisticAttending] = useState(
-    event.event_attendees?.some((a) => a.user_id === user?.id && a.status === "attending") ?? false,
-  )
-  const [optimisticAttendeeCount, setOptimisticAttendeeCount] = useState(getAttendanceCounts(event).attending)
+
+  const initialAttending = isEventWithCounts(event)
+    ? event.user_is_attending
+    : event.event_attendees?.some((a) => a.user_id === user?.id && a.status === "attending") ?? false
+
+  const initialAttendeeCount = isEventWithCounts(event)
+    ? event.attendee_count
+    : getAttendanceCounts(event).attending
+
+  const [optimisticAttending, setOptimisticAttending] = useState(initialAttending)
+  const [optimisticAttendeeCount, setOptimisticAttendeeCount] = useState(initialAttendeeCount)
 
   const isGoing = optimisticAttending
   const isOwner = user?.id === event.user_id

@@ -2,7 +2,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import { SocialTopNav } from "@/components/navigation/social-top-nav";
 import ProfilePageComponent from "../ProfilePage";
-import type { Profile, Event } from "@/types/events";
+import type { Profile, Event, EventWithCounts } from "@/types/events";
 
 type ProfilePageProps = {
   params: { id: string };
@@ -30,7 +30,7 @@ export default async function ProfilePage({ params }: ProfilePageProps) {
   const eventsPromise = supabase
     .from("events")
     .select(
-      "*, profiles!events_profile_id_fkey(*), like_count, comments(count), event_attendees(id, event_id, user_id, status, created_at, profiles(display_name, avatar_url))",
+      "*, profiles!events_profile_id_fkey(*), like_count, comments(count), event_attendees(count)",
     )
     .eq("profile_id", profile.id)
     .order("start_time", { ascending: false });
@@ -53,9 +53,23 @@ export default async function ProfilePage({ params }: ProfilePageProps) {
     console.error("Error fetching events:", eventsError || attendingEventsError);
   }
 
-  const events = (eventsData as Event[]) || [];
-  const attendingEvents: Event[] =
+    const attendingEvents: Event[] =
     attendingEventsData?.map((rsvp: { event: Event }) => rsvp.event) || [];
+
+  const attendingEventIds = new Set(attendingEvents.map((e) => e.id));
+
+  const events: EventWithCounts[] =
+    (eventsData as any[])?.map((event) => {
+      const { event_attendees, ...rest } = event;
+      const attendee_count = event_attendees[0]?.count ?? 0;
+      const user_is_attending = attendingEventIds.has(event.id);
+
+      return {
+        ...rest,
+        attendee_count,
+        user_is_attending,
+      };
+    }) || [];
 
   const initialNavUser = user
     ? {

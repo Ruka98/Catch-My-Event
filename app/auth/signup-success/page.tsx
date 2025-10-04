@@ -25,11 +25,11 @@ export default function SignUpSuccessPage() {
                 <Mail className="w-8 h-8 text-sky-600" />
               </div>
               <CardTitle className="text-2xl text-sky-700">Check Your Email!</CardTitle>
-              <CardDescription>We've sent a confirmation link to complete your registration.</CardDescription>
+              <CardDescription>We&apos;ve sent a confirmation link to complete your registration.</CardDescription>
             </CardHeader>
             <CardContent className="text-center space-y-4">
               <p className="text-sm text-gray-600">
-                Please check your email and click the confirmation link to activate your account. Once confirmed, you'll
+                Please check your email and click the confirmation link to activate your account. Once confirmed, you&apos;ll
                 be able to sign in and start discovering amazing events.
               </p>
               <div className="pt-4">

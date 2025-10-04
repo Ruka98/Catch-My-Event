@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import Link from "next/link"
 import { useMemo, type ComponentType, type SVGProps } from "react"
 import { useAuth } from "@/components/auth-guard"
@@ -77,16 +78,13 @@ export function SocialTopNav({
   }, [user])
 
   return (
-    <header className="sticky top-0 z-50 border-b border-sky-200 bg-white/90 backdrop-blur">
+    <header className="sticky top-0 z-[1200] border-b border-sky-200 bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
         <Link href="/" className="group flex items-center gap-2">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-r from-sky-500 via-fuchsia-500 to-blue-500 text-sm font-bold uppercase tracking-wide text-white shadow-sm">
-            CME
+          <Image src="/logo.png" alt="Catch My Event logo" width={32} height={32} />
+          <span className="font-playfair text-xl font-bold text-gray-900 transition group-hover:text-sky-700">
+            Catch My Event
           </span>
-          <div className="flex flex-col leading-none">
-            <span className="text-lg font-bold text-gray-900 transition group-hover:text-sky-700">Catch My Event</span>
-            <span className="hidden text-xs text-gray-500 sm:block">Publish for free. Find events fast.</span>
-          </div>
         </Link>
 
         <nav className="hidden md:flex items-center gap-1">

@@ -1,6 +1,13 @@
 import type { Metadata } from "next"
 import { GeistSans } from "geist/font/sans"
+import { Playfair_Display } from "next/font/google"
 import "./globals.css"
+
+const playfair = Playfair_Display({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-playfair",
+})
 import { AuthProvider } from "@/components/auth-guard"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
@@ -30,6 +37,14 @@ export const metadata: Metadata = {
       "Browse the interactive map, stay up to date with the event feed, and publish your next Sri Lankan event for free on Catch My Event.",
     url: "https://catchmyevent.com",
     siteName: "Catch My Event",
+    images: [
+      {
+        url: "/logo.png",
+        width: 512,
+        height: 512,
+        alt: "Catch My Event logo",
+      },
+    ],
     locale: "en_US",
     type: "website",
   },
@@ -38,13 +53,19 @@ export const metadata: Metadata = {
     title: "Catch My Event | Free Event Publishing & Local Event Discovery",
     description:
       "Publish events without fees, explore the interactive map, and catch local happenings with Catch My Event.",
+    images: ["/logo.png"],
+  },
+  icons: {
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
   },
   generator: "v0.app",
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={GeistSans.className}>
+    <html lang="en" className={`${GeistSans.className} ${playfair.variable}`}>
       <body>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <AuthProvider>{children}</AuthProvider>

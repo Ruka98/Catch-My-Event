@@ -25,6 +25,7 @@ import {
   Ticket,
 } from "lucide-react"
 import Link from "next/link"
+import Image from "next/image"
 import { useAuth } from "@/components/auth-guard"
 import { getEventsClient, type EventWithProfile } from "@/lib/supabase/events.client"
 import { categoryData as newCategoryData } from "@/lib/constants/categories"
@@ -128,16 +129,14 @@ export default function CategoriesPage() {
                 <span>Back to Events</span>
               </Link>
               <div className="flex items-center space-x-2">
-                <div className="w-8 h-8 bg-gradient-to-r from-orange-500 to-red-500 rounded-lg flex items-center justify-center">
-                  <Calendar className="w-5 h-5 text-white" />
-                </div>
-                <h1 className="text-2xl font-bold text-gray-900">Catch My Event</h1>
+                <Image src="/logo.png" alt="Catch My Event logo" width={32} height={32} />
+                <h1 className="text-2xl font-bold text-gray-900 font-playfair">Catch My Event</h1>
               </div>
             </div>
             <div className="flex items-center space-x-2">
               {user ? (
-                <Link href="/dashboard">
-                  <Button variant="outline">Dashboard</Button>
+                <Link href="/profile">
+                  <Button variant="outline">Profile</Button>
                 </Link>
               ) : (
                 <Link href="/login">

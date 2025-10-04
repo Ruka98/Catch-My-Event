@@ -23,6 +23,7 @@ import {
   Calendar,
   Plus,
 } from "lucide-react"
+import Image from "next/image"
 import Link from "next/link"
 import { useAuth } from "@/components/auth-guard"
 import { SocialTopNav } from "@/components/navigation/social-top-nav"
@@ -71,15 +72,6 @@ export default function HomePage() {
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
 
-  useEffect(() => {
-    if (authLoading) return
-    if (user) return
-    if (typeof window === "undefined") return
-    const hasSeenIntro = window.localStorage.getItem("catchMyEventIntroSeen")
-    if (!hasSeenIntro) {
-      router.replace("/welcome")
-    }
-  }, [authLoading, router, user])
 
   const locations = [
     "All",
@@ -228,7 +220,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100">
-      <SocialTopNav active="feed" />
+      <SocialTopNav active="feed" initialUser={user} />
       <main className="mx-auto max-w-7xl px-4 pb-16 pt-6 space-y-6">
         <div className="pointer-events-auto mx-auto w-full max-w-2xl self-center rounded-2xl bg-white/90 p-3 shadow-lg backdrop-blur-md">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
@@ -451,9 +443,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-6xl px-4">
           <div className="mb-8 text-center">
             <div className="mb-3 flex items-center justify-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-r from-sky-600 to-blue-500">
-                <Calendar className="h-5 w-5 text-white" aria-hidden="true" />
-              </div>
+              <Image src="/logo.png" alt="Catch My Event logo" width={32} height={32} />
               <h3 className="text-lg font-bold">Catch My Event</h3>
             </div>
             <p className="text-sm text-gray-400">Your place to publish, discover, and catch every Sri Lankan event.</p>
@@ -494,7 +484,7 @@ export default function HomePage() {
                   </Link>
                 </li>
                 <li>
-                  <Link href="/dashboard" className="transition hover:text-white">
+                  <Link href="/profile" className="transition hover:text-white">
                     Manage your events
                   </Link>
                 </li>

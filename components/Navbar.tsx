@@ -11,7 +11,7 @@ export default function Navbar() {
         <div className="flex items-center gap-4">
           <Link href="/" className="font-semibold">EventsLK</Link>
           <Link href="/events" className="text-sm text-gray-600 hover:text-black">Events</Link>
-          <Link href="/dashboard" className="text-sm text-gray-600 hover:text-black">Dashboard</Link>
+          <Link href="/profile" className="text-sm text-gray-600 hover:text-black">Profile</Link>
           <Link href="/post-event" className="text-sm text-gray-600 hover:text-black">Post</Link>
         </div>
         <div className="flex items-center gap-3">

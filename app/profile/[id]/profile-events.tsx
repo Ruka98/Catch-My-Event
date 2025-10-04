@@ -54,7 +54,7 @@ export function ProfileEvents({ initialEvents, profileId, user }: ProfileEventsP
       <div className="text-center py-12 px-6 rounded-2xl border-2 border-dashed border-sky-200 bg-sky-50/70">
         <h3 className="text-lg font-medium text-gray-800">No events posted yet.</h3>
         <p className="mt-2 text-sm text-gray-500">
-          This user hasn't posted any events. Check back later!
+          This user hasn&apos;t posted any events. Check back later!
         </p>
       </div>
     )

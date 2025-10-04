@@ -7,7 +7,6 @@ const PUBLIC_PATHS: (string | RegExp)[] = [
   "/calendar",
   "/events",
   /^\/events\/[^/]+$/,
-  "/welcome",
   "/auth/login",
   "/auth/signup",
   "/auth/signup-success",
@@ -54,9 +53,9 @@ export async function middleware(request: NextRequest) {
     return response
   }
 
-  // If user is logged in and tries to access login/signup, redirect to dashboard
+  // If user is logged in and tries to access login/signup, redirect to profile
   if (user && (pathname === "/auth/login" || pathname === "/auth/signup")) {
-    url.pathname = "/dashboard"
+    url.pathname = "/profile"
     return NextResponse.redirect(url)
   }
 

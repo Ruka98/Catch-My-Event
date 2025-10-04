@@ -12,7 +12,7 @@ import InteractiveCalendar from "@/app/calendar/InteractiveCalendar"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/components/ui/use-toast"
-import type { Event, Profile } from "@/types/events"
+import type { Event, Profile, EventWithCounts } from "@/types/events"
 import { Edit2Icon, Loader2, SaveIcon, UploadCloudIcon, UserIcon, XIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -35,7 +35,7 @@ const profileFormSchema = z.object({
 interface ProfilePageProps {
   profile: Profile;
   isOwner: boolean;
-  initialEvents: Event[];
+  initialEvents: (Event | EventWithCounts)[];
   initialAttendingEvents: Event[];
 }
 
@@ -52,7 +52,7 @@ const ProfilePage: FC<ProfilePageProps> = ({
 
   // State
   const [isEditing, setIsEditing] = useState(false);
-  const [events, setEvents] = useState<Event[]>(initialEvents);
+  const [events, setEvents] = useState<(Event | EventWithCounts)[]>(initialEvents);
   const [attendingEvents, setAttendingEvents] = useState<Event[]>(
     initialAttendingEvents
   );

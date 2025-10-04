@@ -10,7 +10,8 @@ import { Label } from "@/components/ui/label"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
-import { Calendar, ChromeIcon } from "lucide-react"
+import { ChromeIcon } from "lucide-react"
+import Image from "next/image"
 
 export default function SignUpPage() {
   const [email, setEmail] = useState("")
@@ -86,10 +87,8 @@ export default function SignUpPage() {
             href="/"
             className="flex items-center justify-center space-x-2 mb-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
           >
-            <div className="w-10 h-10 bg-gradient-to-r from-sky-500 to-blue-600 rounded-lg flex items-center justify-center shadow-sm">
-              <Calendar className="w-6 h-6 text-white" />
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900">Catch My Event</h1>
+            <Image src="/logo.png" alt="Catch My Event logo" width={40} height={40} />
+            <h1 className="text-2xl font-bold text-gray-900 font-playfair">Catch My Event</h1>
           </Link>
 
           <Card className="border-sky-200/70 shadow-sm backdrop-blur">

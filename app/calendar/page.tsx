@@ -255,7 +255,7 @@ export default function CalendarPage() {
                 variant="outline"
                 className="hidden h-full items-center justify-between gap-3 rounded-2xl border-sky-300 px-5 py-4 text-left text-sky-700 transition hover:bg-sky-50 sm:flex bg-transparent"
               >
-                <Link href="/dashboard">
+                <Link href="/profile">
                   <span className="flex items-center gap-2 text-sm font-semibold sm:text-base">
                     <BookOpen className="h-5 w-5" aria-hidden="true" /> Profile
                   </span>

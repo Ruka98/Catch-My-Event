@@ -6,7 +6,8 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "next lint",
-    "start": "next start"
+    "start": "next start",
+    "postbuild": "node scripts/generate-sitemap.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -49,6 +50,7 @@
     "geist": "^1.3.1",
     "input-otp": "latest",
     "leaflet": "latest",
+    "leaflet-geosearch": "^4.2.2",
     "lucide-react": "^0.454.0",
     "next": "14.2.16",
     "next-themes": "latest",
@@ -69,6 +71,7 @@
     "@types/node": "^22",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "dotenv": "^17.2.3",
     "eslint": "^8.57.0",
     "eslint-config-next": "^14.2.33",
     "postcss": "^8.5",

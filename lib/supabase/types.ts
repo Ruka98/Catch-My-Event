@@ -52,6 +52,12 @@ export type EventWithProfile = EventRow & {
   } | null;
 };
 
+// A leaner event type for profile page performance
+export type EventWithCounts = Omit<EventWithProfile, "event_attendees"> & {
+  attendee_count: number;
+  user_is_attending: boolean;
+};
+
 export type Recommendation = {
   score: number;
   reason?: string | null;
