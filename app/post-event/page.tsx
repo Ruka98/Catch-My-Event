@@ -141,7 +141,7 @@ function PostEventContent() {
       const { data, error } = await supabase.from("events").insert(payload).select("id").single()
       if (error) throw error
       alert("Event posted successfully! It's now live on the platform.")
-      router.push(data?.id ? `/events/${data.id}` : "/profile")
+      router.push("/profile")
     } catch (error) {
       console.error("[v0] Error creating event:", error)
       alert("There was an error posting your event. Please try again.")
