@@ -26,7 +26,6 @@ import {
 import Image from "next/image"
 import Link from "next/link"
 import { useAuth } from "@/components/auth-guard"
-import { SocialTopNav } from "@/components/navigation/social-top-nav"
 import { EventCard } from "@/components/EventCard"
 import { useRouter } from "next/navigation"
 
@@ -220,7 +219,6 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100">
-      <SocialTopNav active="feed" initialUser={user} />
       <main className="mx-auto max-w-7xl px-4 pb-16 pt-6 space-y-6">
         <div className="pointer-events-auto mx-auto w-full max-w-2xl self-center rounded-2xl bg-white/90 p-3 shadow-lg backdrop-blur-md">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
