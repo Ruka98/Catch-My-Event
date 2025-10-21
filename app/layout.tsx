@@ -9,6 +9,7 @@ const playfair = Playfair_Display({
   variable: "--font-playfair",
 })
 import { AuthProvider } from "@/components/auth-guard"
+import BottomNavbar from "@/components/navigation/BottomNavbar"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 
@@ -68,7 +69,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${GeistSans.className} ${playfair.variable}`}>
       <body>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <main className="pb-16">{children}</main>
+            <BottomNavbar />
+          </AuthProvider>
           <Toaster />
         </ThemeProvider>
       </body>
