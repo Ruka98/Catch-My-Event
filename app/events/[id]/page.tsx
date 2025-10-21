@@ -6,7 +6,6 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { SocialTopNav } from "@/components/navigation/social-top-nav";
 import {
   Calendar,
   Clock,
@@ -218,7 +217,6 @@ export default async function EventPage({ params }: PageProps) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100">
-      <SocialTopNav active="feed" initialUser={initialNavUser} />
       <main className="mx-auto max-w-5xl px-4 pb-12 pt-10">
         <script
           type="application/ld+json"

@@ -23,7 +23,6 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useAuth } from "@/components/auth-guard"
-import { SocialTopNav } from "@/components/navigation/social-top-nav"
 import {
   getEventsClient,
   getUserRecommendationsClient,
@@ -197,7 +196,6 @@ export default function CalendarPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100">
-      <SocialTopNav active="profile" />
       <main className="mx-auto max-w-7xl space-y-6 px-4 pb-16 pt-6">
         {!user && (
           <section className="space-y-6 rounded-3xl border border-sky-100 bg-white/80 p-6 shadow-sm backdrop-blur">

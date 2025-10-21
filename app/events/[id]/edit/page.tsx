@@ -14,7 +14,6 @@ import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import DynamicLocationPicker from "@/components/dynamic-location-picker"
 import { mainCategories, getSubcategories } from "@/lib/constants/categories"
-import { SocialTopNav } from "@/components/navigation/social-top-nav"
 import { getEventByIdClient, type EventWithProfile } from "@/lib/supabase/events.client"
 
 type EditPageProps = {
@@ -232,7 +231,6 @@ function EditEventContent({ eventId }: { eventId: string }) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-blue-50">
-      <SocialTopNav active="profile" />
       <main className="mx-auto max-w-4xl space-y-8 px-4 pb-16 pt-6">
         <section className="space-y-6 rounded-3xl border border-sky-200/70 bg-white/80 p-6 shadow-sm backdrop-blur">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
