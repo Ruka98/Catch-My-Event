@@ -4,7 +4,6 @@ import { useCallback, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Calendar, MapIcon, Megaphone } from "lucide-react"
-import { SocialTopNav } from "@/components/navigation/social-top-nav"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/components/auth-guard"
 
@@ -28,7 +27,6 @@ export function WelcomeClient() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100">
-      <SocialTopNav active="feed" />
       <main className="mx-auto flex max-w-6xl flex-col gap-10 px-4 pb-16 pt-10">
         <section className="grid gap-8 rounded-3xl bg-white/95 p-8 shadow-xl ring-1 ring-sky-100/60 md:grid-cols-[2fr,1fr]">
           <div className="space-y-5">

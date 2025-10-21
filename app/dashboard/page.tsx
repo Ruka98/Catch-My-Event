@@ -6,7 +6,6 @@ import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/components/auth-guard"
 import { Button } from "@/components/ui/button"
 import { Plus, Eye } from "lucide-react"
-import { SocialTopNav } from "@/components/navigation/social-top-nav"
 import { EventCard } from "@/components/EventCard"
 import type { EventWithProfile } from "@/lib/supabase/types"
 
@@ -65,7 +64,6 @@ export default function DashboardPage() {
   if (!user) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-blue-50">
-        <SocialTopNav active="profile" />
         <div className="mx-auto flex max-w-3xl flex-col items-center justify-center gap-6 px-4 py-24 text-center">
           <h1 className="text-3xl font-bold text-gray-900">Sign in to manage your events</h1>
           <p className="max-w-2xl text-sm text-gray-600">
@@ -82,7 +80,6 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-blue-50">
-      <SocialTopNav active="profile" />
       <main className="mx-auto max-w-6xl space-y-8 px-4 pb-16 pt-6">
         <section className="space-y-6 rounded-3xl border border-sky-200/70 bg-white/80 p-6 shadow-sm backdrop-blur">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -10,7 +10,6 @@ import Link from "next/link"
 import { useAuth } from "@/components/auth-guard"
 import { LikeButton } from "@/components/like-button"
 import { ShareButton } from "@/components/share-button"
-import { SocialTopNav } from "@/components/navigation/social-top-nav"
 import {
   getEventsClient,
   searchEventsClient,
@@ -606,8 +605,6 @@ export default function MapClient() {
 
   return (
     <div className="flex h-screen w-screen flex-col">
-      <SocialTopNav active="map" />
-
       {/* Map and UI Container */}
       <div className="relative flex-grow">
         <main className="absolute inset-0 z-0">

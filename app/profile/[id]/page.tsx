@@ -1,6 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
-import { SocialTopNav } from "@/components/navigation/social-top-nav";
 import ProfilePageComponent from "../ProfilePage";
 import type { Profile, Event, EventWithCounts } from "@/types/events";
 
@@ -86,7 +85,6 @@ export default async function ProfilePage({ params }: ProfilePageProps) {
 
   return (
     <div className="min-h-screen bg-slate-100">
-      <SocialTopNav active="profile" initialUser={initialNavUser} />
       <main className="mx-auto max-w-5xl space-y-8 px-4 pb-16 pt-8">
         <ProfilePageComponent
           profile={profile}
