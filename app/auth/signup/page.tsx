@@ -73,7 +73,7 @@ export default function SignUpPage() {
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `cme://`,
+        redirectTo: `${window.location.origin}/auth/callback`,
       },
     })
   }
