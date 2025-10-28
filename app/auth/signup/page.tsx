@@ -73,7 +73,7 @@ export default function SignUpPage() {
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${process.env.NEXT_PUBLIC_BASE_URL || window.location.origin}/sign-in`,
+        redirectTo: `${window.location.origin}/auth/callback`,
       },
     })
   }

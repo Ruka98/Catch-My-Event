@@ -43,6 +43,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [s]);
 
+  const router = useRouter()
+
   useEffect(() => {
     // initial
     loadUser();
@@ -52,6 +54,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // reload user on any auth change
       setLoading(true);
       loadUser();
+      if (event === "SIGNED_IN") {
+        const redirect = sessionStorage.getItem("redirect")
+        if (redirect) {
+          sessionStorage.removeItem("redirect")
+          router.replace(redirect)
+        }
+      }
       // keep server cookies in sync (so middleware sees the session)
       fetch("/auth/callback", {
         method: "POST",
@@ -60,7 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }).catch(() => {});
     });
     return () => sub.subscription?.unsubscribe();
-  }, [s, loadUser]);
+  }, [s, loadUser, router]);
 
   const logout = useCallback(async () => {
     await s.auth.signOut();
