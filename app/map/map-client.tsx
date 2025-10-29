@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, MapPin, Search, Locate, Heart, Users, Eye, X, Filter, MessageSquare, Crosshair } from "lucide-react"
+import { Calendar, MapPin, Search, Locate, Heart, Users, Eye, X, Filter, MessageSquare, Crosshair, Clock, Ticket, Navigation } from "lucide-react"
 import Link from "next/link"
 import { useAuth } from "@/components/auth-guard"
 import { LikeButton } from "@/components/like-button"
@@ -138,13 +138,10 @@ const GMap = forwardRef(function GMap({
         onLoad={map => { mapInstanceRef.current = map }}
         onClick={() => onEventSelect(null)}
         options={{
-          panControl: true,
           zoomControl: true,
-          mapTypeControl: true,
-          scaleControl: true,
-          streetViewControl: true,
-          rotateControl: true,
-          fullscreenControl: true,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false,
           gestureHandling: "greedy",
         }}
       >
@@ -193,34 +190,8 @@ const GMap = forwardRef(function GMap({
             </div>
           </OverlayView>
         )})}
-        {selectedEventData && (
-          <InfoWindow
-            position={getEventPosition(selectedEventData)}
-            onCloseClick={() => onEventSelect(null)}
-          >
-            <div style={{ minWidth: 220, fontFamily: 'system-ui, sans-serif', padding: 4 }}>
-              <img src={selectedEventData.image_url || "/placeholder.svg"} alt={selectedEventData.title} style={{ width: '100%', height: 100, objectFit: 'cover', borderRadius: 6, marginBottom: 8 }} />
-              <h3 style={{ margin: '0 0 4px 0', fontSize: 15, fontWeight: 600, color: '#111827' }}>{selectedEventData.title}</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8, color: '#6b7280', fontSize: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <span style={{ marginRight: 6 }}>🗓️</span>
-                  <span>{format(parseISO(selectedEventData.date!), "E, MMM d, yyyy")}</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <span style={{ marginRight: 6 }}>⏰</span>
-                  <span>{selectedEventData.start_time?.substring(0, 5)} - {selectedEventData.end_time?.substring(0, 5)}</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <span style={{ marginRight: 6 }}>📍</span>
-                  <span>{selectedEventData.location}</span>
-                </div>
-              </div>
-              <a href={`/events/${selectedEventData.id}`} style={{ display: 'block', backgroundColor: '#0ea5e9', color: 'white', padding: 8, borderRadius: 6, textDecoration: 'none', fontSize: 12, fontWeight: 500, textAlign: 'center' }}>
-                View Details
-              </a>
-            </div>
-          </InfoWindow>
-        )}
+
+        {selectedEventData && <EventPopup event={selectedEventData} onClose={() => onEventSelect(null)} />}
       </GoogleMap>
       <div className="absolute top-4 right-4 z-[1000] flex flex-col space-y-2">
         {userLocation && (
@@ -237,6 +208,104 @@ const GMap = forwardRef(function GMap({
     </div>
   )
 })
+const EventPopup = ({ event, onClose }: { event: EventWithProfile; onClose: () => void }) => {
+  const getEventPosition = useCallback((event: EventWithProfile) => {
+    const hasPreciseCoords =
+      event.latitude !== null &&
+      event.latitude !== undefined &&
+      event.longitude !== null &&
+      event.longitude !== undefined
+
+    const preciseLat = hasPreciseCoords ? Number(event.latitude) : undefined
+    const preciseLng = hasPreciseCoords ? Number(event.longitude) : undefined
+
+    const fallbackCoords = CITY_COORDS[event.location] || CITY_COORDS["Colombo"]
+
+    return {
+      lat: preciseLat ?? fallbackCoords.lat,
+      lng: preciseLng ?? fallbackCoords.lng,
+    }
+  }, []);
+
+  const formatTime = (time: string | null | undefined) => {
+    if (!time) return "TBD"
+    const [hours, minutes] = time.split(":")
+    const date = new Date()
+    date.setHours(parseInt(hours))
+    date.setMinutes(parseInt(minutes))
+    return format(date, "h:mm a")
+  }
+
+  const priceLabel =
+    event.price === null ? "TBD" : event.price === 0 ? "Free" : `LKR ${event.price.toLocaleString()}`
+
+  return (
+    <OverlayView
+      position={getEventPosition(event)}
+      mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+      getPixelPositionOffset={(width, height) => ({
+        x: -(width / 2),
+        y: -(height + 50),
+      })}
+    >
+      <div className="relative w-80 rounded-2xl bg-white p-4 shadow-xl transition-all duration-300 ease-in-out">
+        <button
+          onClick={onClose}
+          className="absolute -top-2 -right-2 flex h-7 w-7 items-center justify-center rounded-full bg-gray-200 text-gray-700 shadow-md transition-transform hover:scale-110"
+        >
+          <X size={16} />
+        </button>
+
+        <div className="flex">
+          <img
+            src={event.image_url || "/placeholder.svg"}
+            alt={event.title}
+            className="h-24 w-24 rounded-lg object-cover"
+          />
+          <div className="ml-4 flex flex-col justify-between">
+            <div>
+              <h3 className="text-base font-bold text-gray-900">{event.title}</h3>
+              <p className="text-xs text-gray-500">{event.location}</p>
+            </div>
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-center text-gray-600">
+                <Calendar size={14} className="mr-2 text-sky-500" />
+                {format(parseISO(event.date!), "E, MMM d, yyyy")}
+              </div>
+              <div className="flex items-center text-gray-600">
+                <Clock size={14} className="mr-2 text-sky-500" />
+                {formatTime(event.start_time)}
+              </div>
+              <div className="flex items-center font-semibold text-gray-800">
+                <Ticket size={14} className="mr-2 text-emerald-500" />
+                {priceLabel}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <a
+            href={`https://www.google.com/maps/dir/?api=1&destination=${getEventPosition(event).lat},${getEventPosition(event).lng}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center rounded-lg bg-sky-500 py-2 text-xs font-semibold text-white transition-colors hover:bg-sky-600"
+          >
+            <Navigation size={14} className="mr-1.5" />
+            Navigate
+          </a>
+          <Link
+            href={`/events/${event.id}`}
+            className="flex items-center justify-center rounded-lg bg-gray-100 py-2 text-xs font-semibold text-gray-800 transition-colors hover:bg-gray-200"
+          >
+            View Details
+          </Link>
+        </div>
+      </div>
+    </OverlayView>
+  )
+}
+
 GMap.displayName = "GMap"
 
 export default function MapClient() {
