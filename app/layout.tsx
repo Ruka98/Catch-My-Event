@@ -72,7 +72,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <AuthProvider>
             <Header />
-            <main className="flex-1 overflow-y-auto pb-16 pt-16">{children}</main>
+            <main className="flex-1 overflow-y-auto pb-16">{children}</main>
             <BottomNavbar />
           </AuthProvider>
           <Toaster />
