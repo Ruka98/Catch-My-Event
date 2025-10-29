@@ -39,7 +39,7 @@ import {
 } from "date-fns"
 import { mainCategories, getSubcategories } from "@/lib/constants/categories"
 import Header from "@/components/layout/Header"
-import { GoogleMap, LoadScript, Marker, InfoWindow } from "@react-google-maps/api"
+import { GoogleMap, LoadScript, Marker, InfoWindow, OverlayView } from "@react-google-maps/api"
 
 const categories = ["All", ...mainCategories]
 
@@ -125,6 +125,11 @@ const GMap = forwardRef(function GMap({
     }
   }, []);
 
+  const getPixelPositionOffset = (width: number, height: number) => ({
+    x: -(width / 2),
+    y: -(height / 2),
+  });
+
   return (
     <div className="relative h-full w-full">
       <GoogleMap
@@ -153,18 +158,38 @@ const GMap = forwardRef(function GMap({
             }}
           />
         )}
-        {events.map(event => (
-          <Marker
+        {events.map(event => {
+          const isSelected = selectedEvent === event.id;
+          const iconSize = isSelected ? 44 : 36;
+          return(
+          <OverlayView
             key={event.id}
             position={getEventPosition(event)}
-            onClick={() => onEventSelect(event.id)}
-            icon={{
-              url: event.image_url || "/placeholder.svg",
-              scaledSize: new window.google.maps.Size(36, 36),
-              anchor: new window.google.maps.Point(18, 18),
-            }}
-          />
-        ))}
+            mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+            getPixelPositionOffset={() => getPixelPositionOffset(iconSize, iconSize)}
+          >
+            <div
+              style={{
+                cursor: 'pointer',
+              }}
+              onClick={() => onEventSelect(event.id)}
+            >
+              <img
+                src={event.image_url || "/placeholder.svg"}
+                alt={event.title}
+                style={{
+                  width: `${iconSize}px`,
+                  height: `${iconSize}px`,
+                  borderRadius: '50%',
+                  border: isSelected ? '3px solid #0ea5e9' : '2px solid white',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+                  transition: 'all 0.2s ease',
+                  objectFit: 'cover',
+                }}
+              />
+            </div>
+          </OverlayView>
+        )})}
         {selectedEventData && (
           <InfoWindow
             position={getEventPosition(selectedEventData)}
