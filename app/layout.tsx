@@ -10,6 +10,7 @@ const playfair = Playfair_Display({
 })
 import { AuthProvider } from "@/components/auth-guard"
 import BottomNavbar from "@/components/navigation/BottomNavbar"
+import Header from "@/components/layout/Header"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 
@@ -70,6 +71,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <AuthProvider>
+            <Header />
             <main className="pb-16">{children}</main>
             <BottomNavbar />
           </AuthProvider>

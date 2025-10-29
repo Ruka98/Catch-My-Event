@@ -38,7 +38,6 @@ import {
   format,
 } from "date-fns"
 import { mainCategories, getSubcategories } from "@/lib/constants/categories"
-import Header from "@/components/layout/Header"
 import { GoogleMap, LoadScript, Marker, InfoWindow, OverlayView } from "@react-google-maps/api"
 
 const categories = ["All", ...mainCategories]
@@ -139,10 +138,13 @@ const GMap = forwardRef(function GMap({
         onLoad={map => { mapInstanceRef.current = map }}
         onClick={() => onEventSelect(null)}
         options={{
+          panControl: true,
           zoomControl: true,
-          streetViewControl: false,
-          mapTypeControl: false,
-          fullscreenControl: false,
+          mapTypeControl: true,
+          scaleControl: true,
+          streetViewControl: true,
+          rotateControl: true,
+          fullscreenControl: true,
         }}
       >
         {userLocation && (
@@ -505,7 +507,6 @@ export default function MapClient() {
 
   return (
     <div className="flex h-screen w-screen flex-col">
-      <Header />
       {/* Map and UI Container */}
       <div className="relative flex-grow">
         <main className="absolute inset-0 z-0">
