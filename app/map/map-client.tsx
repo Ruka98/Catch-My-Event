@@ -145,6 +145,7 @@ const GMap = forwardRef(function GMap({
           streetViewControl: true,
           rotateControl: true,
           fullscreenControl: true,
+          gestureHandling: "auto",
         }}
       >
         {userLocation && (
