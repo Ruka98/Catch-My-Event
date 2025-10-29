@@ -123,7 +123,7 @@ function PostEventContent() {
         subcategory: formData.subcategory || null,
         date: formData.date,
         end_date: formData.endDate || formData.date,
-        time: formData.time,
+        start_time: formData.time,
         venue: formData.venue,
         price,
         max_attendees: maxAttendees,

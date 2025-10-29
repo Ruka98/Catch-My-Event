@@ -191,7 +191,7 @@ const GMap = forwardRef(function GMap({
           </OverlayView>
         )})}
 
-        {selectedEventData && <EventPopup event={selectedEventData} onClose={() => onEventSelect(null)} />}
+        {selectedEventData && <EventPopup event={selectedEventData} />}
       </GoogleMap>
       <div className="absolute top-4 right-4 z-[1000] flex flex-col space-y-2">
         {userLocation && (
@@ -208,7 +208,7 @@ const GMap = forwardRef(function GMap({
     </div>
   )
 })
-const EventPopup = ({ event, onClose }: { event: EventWithProfile; onClose: () => void }) => {
+const EventPopup = ({ event }: { event: EventWithProfile }) => {
   const getEventPosition = useCallback((event: EventWithProfile) => {
     const hasPreciseCoords =
       event.latitude !== null &&
@@ -225,7 +225,7 @@ const EventPopup = ({ event, onClose }: { event: EventWithProfile; onClose: () =
       lat: preciseLat ?? fallbackCoords.lat,
       lng: preciseLng ?? fallbackCoords.lng,
     }
-  }, []);
+  }, [])
 
   const formatTime = (time: string | null | undefined) => {
     if (!time) return "TBD"
@@ -242,27 +242,24 @@ const EventPopup = ({ event, onClose }: { event: EventWithProfile; onClose: () =
   return (
     <OverlayView
       position={getEventPosition(event)}
-      mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+      mapPaneName={OverlayView.FLOAT_PANE}
       getPixelPositionOffset={(width, height) => ({
         x: -(width / 2),
-        y: -(height + 50),
+        y: -(height + 45),
       })}
     >
-      <div className="relative w-80 rounded-2xl bg-white p-4 shadow-xl transition-all duration-300 ease-in-out">
-        <button
-          onClick={onClose}
-          className="absolute -top-2 -right-2 flex h-7 w-7 items-center justify-center rounded-full bg-gray-200 text-gray-700 shadow-md transition-transform hover:scale-110"
-        >
-          <X size={16} />
-        </button>
-
+      <div
+        className="w-[90vw] max-w-sm rounded-2xl bg-white p-4 shadow-xl transition-all duration-300 ease-in-out sm:w-80"
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="flex">
           <img
             src={event.image_url || "/placeholder.svg"}
             alt={event.title}
             className="h-24 w-24 rounded-lg object-cover"
           />
-          <div className="ml-4 flex flex-col justify-between">
+          <div className="ml-4 flex flex-1 flex-col justify-between">
             <div>
               <h3 className="text-base font-bold text-gray-900">{event.title}</h3>
               <p className="text-xs text-gray-500">{event.location}</p>
