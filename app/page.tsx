@@ -28,6 +28,7 @@ import Link from "next/link"
 import { useAuth } from "@/components/auth-guard"
 import { EventCard } from "@/components/EventCard"
 import { useRouter } from "next/navigation"
+import Header from "@/components/layout/Header"
 
 // ✅ IMPORTANT: use the client-only helpers (no next/headers inside these)
 import {
@@ -219,6 +220,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100">
+      <Header />
       <main className="mx-auto max-w-7xl px-4 pb-16 pt-6 space-y-6">
         <div className="pointer-events-auto mx-auto w-full max-w-2xl self-center rounded-2xl bg-white/90 p-3 shadow-lg backdrop-blur-md">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
@@ -437,89 +439,6 @@ export default function HomePage() {
           </div>
         </section>
       </main>
-      <footer className="mt-10 bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 py-10 text-white">
-        <div className="mx-auto max-w-6xl px-4">
-          <div className="mb-8 text-center">
-            <div className="mb-3 flex items-center justify-center gap-2">
-              <Image src="/logo.png" alt="Catch My Event logo" width={32} height={32} />
-              <h3 className="text-lg font-bold">Catch My Event</h3>
-            </div>
-            <p className="text-sm text-gray-400">Your place to publish, discover, and catch every Sri Lankan event.</p>
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 text-sm sm:grid-cols-2 md:grid-cols-3">
-            <div>
-              <h4 className="mb-2 font-semibold">Quick Links</h4>
-              <ul className="space-y-2 text-gray-400">
-                <li>
-                  <Link href="/" className="transition hover:text-white">
-                    Home
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/map" className="transition hover:text-white">
-                    Explore map view
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/calendar" className="transition hover:text-white">
-                    My calendar
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/categories" className="transition hover:text-white">
-                    Browse categories
-                  </Link>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="mb-2 font-semibold">Host &amp; Support</h4>
-              <ul className="space-y-2 text-gray-400">
-                <li>
-                  <Link href="/post-event" className="transition hover:text-white">
-                    Host an event
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/profile" className="transition hover:text-white">
-                    Manage your events
-                  </Link>
-                </li>
-                <li>
-                  <a href="mailto:kavindurukmal@gmail.com" className="transition hover:text-white">
-                    Feedback &amp; bug reports
-                  </a>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="mb-2 font-semibold">Policies</h4>
-              <ul className="space-y-2 text-gray-400">
-                <li>
-                  <Link href="/privacy-policy" className="transition hover:text-white">
-                    Privacy Policy
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/terms" className="transition hover:text-white">
-                    Terms &amp; Conditions
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/categories" className="transition hover:text-white">
-                    Event submission guidelines
-                  </Link>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="mt-8 border-t border-white/10 pt-4 text-center text-xs text-gray-400">
-            <p>&copy; {new Date().getFullYear()} Catch My Event. All rights reserved.</p>
-          </div>
-        </div>
-      </footer>
     </div>
   )
 }

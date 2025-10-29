@@ -17,7 +17,7 @@ const BottomNavbar = () => {
     { href: "/post-event", icon: PlusSquare, label: "Post", protected: true },
     { href: "/notifications", icon: Bell, label: "Notifications", protected: true },
     { href: "/profile", icon: User, label: "Profile", protected: true },
-  ]
+  ].filter((item) => !item.protected || user)
 
   const hiddenPaths = [
     "/login",

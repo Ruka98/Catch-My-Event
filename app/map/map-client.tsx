@@ -38,6 +38,7 @@ import {
   format,
 } from "date-fns"
 import { mainCategories, getSubcategories } from "@/lib/constants/categories"
+import Header from "@/components/layout/Header"
 
 const categories = ["All", ...mainCategories]
 
@@ -605,6 +606,7 @@ export default function MapClient() {
 
   return (
     <div className="flex h-screen w-screen flex-col">
+      <Header />
       {/* Map and UI Container */}
       <div className="relative flex-grow">
         <main className="absolute inset-0 z-0">
