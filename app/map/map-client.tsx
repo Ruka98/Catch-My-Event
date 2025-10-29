@@ -143,6 +143,13 @@ const GMap = forwardRef(function GMap({
           streetViewControl: false,
           fullscreenControl: false,
           gestureHandling: "greedy",
+          styles: [
+            {
+              featureType: "poi",
+              elementType: "labels",
+              stylers: [{ visibility: "off" }],
+            },
+          ],
         }}
       >
         {userLocation && (
@@ -165,7 +172,7 @@ const GMap = forwardRef(function GMap({
           <OverlayView
             key={event.id}
             position={getEventPosition(event)}
-            mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+            mapPaneName={OverlayView.FLOAT_PANE}
             getPixelPositionOffset={() => getPixelPositionOffset(iconSize, iconSize)}
           >
             <div
@@ -229,11 +236,35 @@ const EventPopup = ({ event }: { event: EventWithProfile }) => {
 
   const formatTime = (time: string | null | undefined) => {
     if (!time) return "TBD"
-    const [hours, minutes] = time.split(":")
-    const date = new Date()
-    date.setHours(parseInt(hours))
-    date.setMinutes(parseInt(minutes))
-    return format(date, "h:mm a")
+
+    const formatSingle = (t: string) => {
+      const [hours, minutes] = t.split(":")
+      const date = new Date()
+      date.setHours(parseInt(hours, 10))
+      date.setMinutes(parseInt(minutes, 10))
+      return format(date, "h:mm a")
+    }
+
+    if (time.startsWith("(") && time.endsWith(")")) {
+      try {
+        const [start, end] = time
+          .slice(1, -1)
+          .split(",")
+          .map((t) => t.trim())
+        return `${formatSingle(start)} - ${formatSingle(end)}`
+      } catch (error) {
+        console.error("Error formatting time range:", error)
+        return "Invalid time range"
+      }
+    }
+
+    // Handle single time format
+    try {
+      return formatSingle(time)
+    } catch (error) {
+      console.error("Error formatting single time:", error)
+      return "Invalid time"
+    }
   }
 
   const priceLabel =
@@ -271,7 +302,7 @@ const EventPopup = ({ event }: { event: EventWithProfile }) => {
               </div>
               <div className="flex items-center text-gray-600">
                 <Clock size={14} className="mr-2 text-sky-500" />
-                {formatTime(event.start_time)}
+                {formatTime(event.time)}
               </div>
               <div className="flex items-center font-semibold text-gray-800">
                 <Ticket size={14} className="mr-2 text-emerald-500" />
