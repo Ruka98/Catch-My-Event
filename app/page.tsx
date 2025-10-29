@@ -356,17 +356,19 @@ export default function HomePage() {
           )}
 
           {/* Post Event Button */}
-          <div className="mt-4 flex justify-center border-t border-sky-100 pt-4">
-            <Button
-              asChild
-              className="rounded-full bg-gradient-to-r from-sky-500 to-blue-600 px-6 py-2 text-white shadow-lg transition-all hover:from-sky-600 hover:to-blue-700 hover:shadow-xl"
-            >
-              <Link href="/post-event" className="flex items-center gap-2">
-                <Plus className="h-4 w-4" />
-                Post Event
-              </Link>
-            </Button>
-          </div>
+          {user && (
+            <div className="mt-4 flex justify-center border-t border-sky-100 pt-4">
+              <Button
+                asChild
+                className="rounded-full bg-gradient-to-r from-sky-500 to-blue-600 px-6 py-2 text-white shadow-lg transition-all hover:from-sky-600 hover:to-blue-700 hover:shadow-xl"
+              >
+                <Link href="/post-event" className="flex items-center gap-2">
+                  <Plus className="h-4 w-4" />
+                  Post Event
+                </Link>
+              </Button>
+            </div>
+          )}
         </div>
 
         <section className="py-6">

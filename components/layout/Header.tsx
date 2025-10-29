@@ -1,7 +1,13 @@
+"use client"
+
 import Link from "next/link"
 import Image from "next/image"
+import { useAuth } from "@/components/auth-guard"
+import { Button } from "@/components/ui/button"
 
 const Header = () => {
+  const { user } = useAuth()
+
   return (
     <header className="bg-background border-b z-10">
       <div className="container mx-auto px-4 py-3 flex justify-between items-center">
@@ -12,6 +18,18 @@ const Header = () => {
             <span className="text-xs text-muted-foreground">Catch all events near you</span>
           </div>
         </Link>
+        <div>
+          {!user && (
+            <div className="flex items-center space-x-2">
+              <Button asChild variant="ghost">
+                <Link href="/auth/login">Login</Link>
+              </Button>
+              <Button asChild>
+                <Link href="/auth/signup">Sign up</Link>
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   )
