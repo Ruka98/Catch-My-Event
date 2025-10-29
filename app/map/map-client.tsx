@@ -149,6 +149,11 @@ const GMap = forwardRef(function GMap({
               elementType: "labels",
               stylers: [{ visibility: "off" }],
             },
+            {
+              featureType: "poi",
+              elementType: "geometry",
+              stylers: [{ visibility: "off" }],
+            },
           ],
         }}
       >
@@ -190,7 +195,6 @@ const GMap = forwardRef(function GMap({
                   borderRadius: '50%',
                   border: isSelected ? '3px solid #0ea5e9' : '2px solid white',
                   boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
-                  transition: 'all 0.2s ease',
                   objectFit: 'cover',
                 }}
               />
