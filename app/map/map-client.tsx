@@ -39,6 +39,7 @@ import {
 } from "date-fns"
 import { mainCategories, getSubcategories } from "@/lib/constants/categories"
 import Header from "@/components/layout/Header"
+import { GoogleMap, LoadScript, Marker, InfoWindow, OverlayView } from "@react-google-maps/api"
 
 const categories = ["All", ...mainCategories]
 
@@ -64,7 +65,14 @@ function calculateDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
   return R * c
 }
 
-const LeafletMap = forwardRef(function LeafletMap({
+const libraries: "places"[] = ["places"];
+
+const containerStyle = {
+  width: '100%',
+  height: '100%',
+};
+
+const GMap = forwardRef(function GMap({
   events,
   selectedEvent,
   onEventSelect,
@@ -75,14 +83,12 @@ const LeafletMap = forwardRef(function LeafletMap({
   onEventSelect: (eventId: string | null) => void
   userLocation: { lat: number; lng: number } | null
 }, ref) {
-  const mapRef = useRef<HTMLDivElement>(null)
-  const mapInstanceRef = useRef<any>(null)
-  const markersRef = useRef<any[]>([])
-  const [isMapReady, setIsMapReady] = useState(false)
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
 
   const centerOnUser = () => {
     if (mapInstanceRef.current && userLocation) {
-      mapInstanceRef.current.setView([userLocation.lat, userLocation.lng], 13)
+      mapInstanceRef.current.panTo(userLocation);
+      mapInstanceRef.current.setZoom(13);
     }
   }
 
@@ -90,236 +96,129 @@ const LeafletMap = forwardRef(function LeafletMap({
     centerOnUser,
     setView: (lat: number, lng: number, zoom: number) => {
       if (mapInstanceRef.current) {
-        mapInstanceRef.current.setView([lat, lng], zoom)
+        mapInstanceRef.current.panTo({ lat, lng });
+        mapInstanceRef.current.setZoom(zoom);
       }
     },
   }));
 
+  const selectedEventData = useMemo(() => {
+    if (!selectedEvent) return null;
+    return events.find(event => event.id === selectedEvent);
+  }, [selectedEvent, events]);
 
-  useEffect(() => {
-    if (typeof window === "undefined" || !mapRef.current) return
+  const getEventPosition = useCallback((event: EventWithProfile) => {
+    const hasPreciseCoords =
+      event.latitude !== null &&
+      event.latitude !== undefined &&
+      event.longitude !== null &&
+      event.longitude !== undefined
 
-    let isMounted = true
+    const preciseLat = hasPreciseCoords ? Number(event.latitude) : undefined
+    const preciseLng = hasPreciseCoords ? Number(event.longitude) : undefined
 
-    const initMap = async () => {
-      try {
-        const L = (await import("leaflet")).default
+    const fallbackCoords = CITY_COORDS[event.location] || CITY_COORDS["Colombo"]
 
-        if (mapInstanceRef.current || !isMounted) return
-
-        delete (L.Icon.Default.prototype as any)._getIconUrl
-        L.Icon.Default.mergeOptions({
-          iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
-          iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-          shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-        })
-
-        const map = L.map(mapRef.current, {
-          center: [7.8731, 80.7718],
-          zoom: 8,
-          zoomControl: true,
-          attributionControl: true,
-        })
-
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-          maxZoom: 18,
-        }).addTo(map)
-
-        map.on("click", () => {
-          onEventSelect(null)
-        })
-
-        mapInstanceRef.current = map
-        setIsMapReady(true)
-
-        console.log("[v0] Map initialized successfully")
-      } catch (error) {
-        console.error("[v0] Error initializing map:", error)
-      }
+    return {
+      lat: preciseLat ?? fallbackCoords.lat,
+      lng: preciseLng ?? fallbackCoords.lng,
     }
+  }, []);
 
-    initMap()
-
-    return () => {
-      isMounted = false
-      if (mapInstanceRef.current) {
-        try {
-          mapInstanceRef.current.remove()
-          mapInstanceRef.current = null
-          markersRef.current = []
-          setIsMapReady(false)
-          console.log("[v0] Map cleaned up")
-        } catch (error) {
-          console.error("[v0] Error cleaning up map:", error)
-        }
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!isMapReady || !mapInstanceRef.current) return
-
-    const updateMarkers = async () => {
-      try {
-        const L = (await import("leaflet")).default
-
-        markersRef.current.forEach((marker) => {
-          try {
-            mapInstanceRef.current.removeLayer(marker)
-          } catch (error) {
-            console.warn("[v0] Error removing marker:", error)
-          }
-        })
-        markersRef.current = []
-
-        // Modern user location marker
-        if (userLocation) {
-          const userIcon = L.divIcon({
-            className: "custom-user-marker",
-            html: `<div style="
-              width: 28px;
-              height: 28px;
-              background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-              border: 3px solid white;
-              border-radius: 50%;
-              box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              color: white;
-              font-weight: bold;
-              font-size: 12px;
-              cursor: pointer;
-            ">👤</div>`,
-            iconSize: [28, 28],
-            iconAnchor: [14, 14],
-          })
-
-          const userMarker = L.marker([userLocation.lat, userLocation.lng], { icon: userIcon })
-            .addTo(mapInstanceRef.current)
-            .bindPopup(`<div style="text-align: center; padding: 8px;">
-              <strong style="color: #059669;">📍 Your Location</strong>
-              <br><small style="color: #6b7280;">Click events nearby to explore</small>
-            </div>`)
-
-          markersRef.current.push(userMarker)
-        }
-
-        events.forEach((event) => {
-          const hasPreciseCoords =
-            event.latitude !== null &&
-            event.latitude !== undefined &&
-            event.longitude !== null &&
-            event.longitude !== undefined
-
-          const preciseLat = hasPreciseCoords ? Number(event.latitude) : undefined
-          const preciseLng = hasPreciseCoords ? Number(event.longitude) : undefined
-
-          const fallbackCoords = CITY_COORDS[event.location] || CITY_COORDS["Colombo"]
-
-          const lat = preciseLat ?? fallbackCoords.lat
-          const lng = preciseLng ?? fallbackCoords.lng
-
-          const isSelected = selectedEvent === event.id
-          const iconSize = isSelected ? 44 : 36
-          const iconImageUrl = event.image_url || "/placeholder.svg"
-
-          const eventIcon = L.divIcon({
-            className: "custom-event-marker",
-            html: `<div style="
-              width: ${iconSize}px;
-              height: ${iconSize}px;
-              background-image: url('${iconImageUrl}');
-              background-size: cover;
-              background-position: center;
-              border-radius: 50%;
-              border: ${isSelected ? "3px solid #0ea5e9" : "2px solid white"};
-              box-shadow: 0 2px 8px rgba(0,0,0,0.5);
-              transition: all 0.2s ease;
-            "></div>`,
-            iconSize: [iconSize, iconSize],
-            iconAnchor: [iconSize / 2, iconSize],
-          })
-
-          const eventDate = event.date ? parseISO(event.date) : null
-          const formattedDate = eventDate ? format(eventDate, "E, MMM d, yyyy") : "Date TBD"
-          const rawTime =
-            event.start_time && event.end_time
-              ? `${event.start_time.substring(0, 5)} - ${event.end_time.substring(0, 5)}`
-              : "Time TBD"
-
-          const marker = L.marker([lat, lng], {
-            icon: eventIcon,
-          })
-            .addTo(mapInstanceRef.current)
-            .bindPopup(
-              `<div style="min-width: 220px; font-family: system-ui, -apple-system, sans-serif; padding: 4px;">
-                <img src="${event.image_url || "/placeholder.svg"}" alt="${event.title}" style="width: 100%; height: 100px; object-fit: cover; border-radius: 6px; margin-bottom: 8px;" />
-                <h3 style="margin: 0 0 4px 0; font-size: 15px; font-weight: 600; color: #111827;">${event.title}</h3>
-                <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; color: #6b7280; font-size: 12px;">
-                  <div style="display: flex; align-items: center;">
-                    <span style="margin-right: 6px;">🗓️</span>
-                    <span>${formattedDate}</span>
-                  </div>
-                  <div style="display: flex; align-items: center;">
-                    <span style="margin-right: 6px;">⏰</span>
-                    <span>${rawTime}</span>
-                  </div>
-                  <div style="display: flex; align-items: center;">
-                    <span style="margin-right: 6px;">📍</span>
-                    <span>${event.location}</span>
-                  </div>
-                </div>
-                <a href="/events/${event.id}" style="display: block; background-color: #0ea5e9; color: white; padding: 8px; border-radius: 6px; text-decoration: none; font-size: 12px; font-weight: 500; text-align: center;">
-                  View Details
-                </a>
-              </div>`,
-            )
-            .on("click", (e) => {
-              const L = (window as any).L
-              if (L) {
-                L.DomEvent.stopPropagation(e)
-              }
-              onEventSelect(event.id)
-            })
-
-          markersRef.current.push(marker)
-
-          if (isSelected) {
-            marker.openPopup()
-          }
-        })
-
-        console.log("[v0] Markers updated successfully")
-      } catch (error) {
-        console.error("[v0] Error updating markers:", error)
-      }
-    }
-
-    updateMarkers()
-  }, [events, selectedEvent, onEventSelect, userLocation, isMapReady])
+  const getPixelPositionOffset = (width: number, height: number) => ({
+    x: -(width / 2),
+    y: -(height / 2),
+  });
 
   return (
     <div className="relative h-full w-full">
-      <link
-        rel="stylesheet"
-        href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"
-        integrity="sha512-xodZBNTC5n17Xt2atTPuE1HxjVMSvLVW9ocqUKLsCC5CXdbqCmblAshOMAS6/keqq/sMZMZ19scR4PsZChSR7A=="
-        crossOrigin=""
-      />
-
-      {!isMapReady && (
-        <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-white/80">
-          <div className="text-center">
-            <div className="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-b-2 border-sky-500"></div>
-            <p className="text-gray-600">Loading interactive map...</p>
-          </div>
-        </div>
-      )}
-
-      <div ref={mapRef} className="h-full w-full" />
-
+      <GoogleMap
+        mapContainerStyle={containerStyle}
+        center={userLocation || { lat: 7.8731, lng: 80.7718 }}
+        zoom={8}
+        onLoad={map => { mapInstanceRef.current = map }}
+        onClick={() => onEventSelect(null)}
+        options={{
+          zoomControl: true,
+          streetViewControl: false,
+          mapTypeControl: false,
+          fullscreenControl: false,
+        }}
+      >
+        {userLocation && (
+          <Marker
+            position={userLocation}
+            icon={{
+              path: google.maps.SymbolPath.CIRCLE,
+              scale: 8,
+              fillColor: "#10b981",
+              fillOpacity: 1,
+              strokeColor: "white",
+              strokeWeight: 2,
+            }}
+          />
+        )}
+        {events.map(event => {
+          const isSelected = selectedEvent === event.id;
+          const iconSize = isSelected ? 44 : 36;
+          return(
+          <OverlayView
+            key={event.id}
+            position={getEventPosition(event)}
+            mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+            getPixelPositionOffset={() => getPixelPositionOffset(iconSize, iconSize)}
+          >
+            <div
+              style={{
+                cursor: 'pointer',
+              }}
+              onClick={() => onEventSelect(event.id)}
+            >
+              <img
+                src={event.image_url || "/placeholder.svg"}
+                alt={event.title}
+                style={{
+                  width: `${iconSize}px`,
+                  height: `${iconSize}px`,
+                  borderRadius: '50%',
+                  border: isSelected ? '3px solid #0ea5e9' : '2px solid white',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+                  transition: 'all 0.2s ease',
+                  objectFit: 'cover',
+                }}
+              />
+            </div>
+          </OverlayView>
+        )})}
+        {selectedEventData && (
+          <InfoWindow
+            position={getEventPosition(selectedEventData)}
+            onCloseClick={() => onEventSelect(null)}
+          >
+            <div style={{ minWidth: 220, fontFamily: 'system-ui, sans-serif', padding: 4 }}>
+              <img src={selectedEventData.image_url || "/placeholder.svg"} alt={selectedEventData.title} style={{ width: '100%', height: 100, objectFit: 'cover', borderRadius: 6, marginBottom: 8 }} />
+              <h3 style={{ margin: '0 0 4px 0', fontSize: 15, fontWeight: 600, color: '#111827' }}>{selectedEventData.title}</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8, color: '#6b7280', fontSize: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <span style={{ marginRight: 6 }}>🗓️</span>
+                  <span>{format(parseISO(selectedEventData.date!), "E, MMM d, yyyy")}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <span style={{ marginRight: 6 }}>⏰</span>
+                  <span>{selectedEventData.start_time?.substring(0, 5)} - {selectedEventData.end_time?.substring(0, 5)}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <span style={{ marginRight: 6 }}>📍</span>
+                  <span>{selectedEventData.location}</span>
+                </div>
+              </div>
+              <a href={`/events/${selectedEventData.id}`} style={{ display: 'block', backgroundColor: '#0ea5e9', color: 'white', padding: 8, borderRadius: 6, textDecoration: 'none', fontSize: 12, fontWeight: 500, textAlign: 'center' }}>
+                View Details
+              </a>
+            </div>
+          </InfoWindow>
+        )}
+      </GoogleMap>
       <div className="absolute top-4 right-4 z-[1000] flex flex-col space-y-2">
         {userLocation && (
           <Button
@@ -335,7 +234,7 @@ const LeafletMap = forwardRef(function LeafletMap({
     </div>
   )
 })
-LeafletMap.displayName = "LeafletMap"
+GMap.displayName = "GMap"
 
 export default function MapClient() {
   const [searchTerm, setSearchTerm] = useState("")
@@ -610,13 +509,19 @@ export default function MapClient() {
       {/* Map and UI Container */}
       <div className="relative flex-grow">
         <main className="absolute inset-0 z-0">
-          <LeafletMap
-            ref={mapRef}
-            events={filteredEvents}
-            selectedEvent={selectedEvent}
-            onEventSelect={setSelectedEvent}
-            userLocation={userLocation}
-          />
+          <LoadScript
+            googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!}
+            libraries={libraries}
+            loadingElement={<div className="h-full w-full animate-pulse bg-gray-200" />}
+          >
+            <GMap
+              ref={mapRef}
+              events={filteredEvents}
+              selectedEvent={selectedEvent}
+              onEventSelect={setSelectedEvent}
+              userLocation={userLocation}
+            />
+          </LoadScript>
         </main>
 
         {/* UI Controls Overlay */}
@@ -744,7 +649,115 @@ export default function MapClient() {
 
           {/* Bottom Overlays */}
           <div className="w-full">
-            {/* Selected Event Details Card is removed to keep the view focused on the map and popups */}
+            {selectedEventData && (
+                 <div className="pointer-events-auto absolute inset-x-4 bottom-4 z-10 mx-auto max-w-sm">
+                 <Card className="overflow-hidden rounded-2xl border-2 border-sky-200 shadow-xl">
+                   <CardContent className="p-0">
+                     <div className="relative">
+                       <img
+                         src={selectedEventData.image_url ?? "/placeholder.svg"}
+                         alt={selectedEventData.title}
+                         className="h-48 w-full object-cover"
+                       />
+                       <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+                       <div className="absolute bottom-0 left-0 p-4">
+                         <h2 className="text-xl font-bold text-white">{selectedEventData.title}</h2>
+                         <div className="mt-1 flex items-center space-x-2">
+                           <Badge variant="secondary" className="bg-sky-100 text-sky-800">
+                             {selectedEventData.category}
+                           </Badge>
+                           {selectedEventData.subcategory && (
+                             <Badge variant="secondary" className="bg-sky-100/80 text-sky-700">
+                               {selectedEventData.subcategory}
+                             </Badge>
+                           )}
+                         </div>
+                       </div>
+                       <Button
+                         variant="ghost"
+                         size="sm"
+                         className="absolute top-2 right-2 rounded-full bg-black/30 text-white hover:bg-black/50 hover:text-white"
+                         onClick={() => setSelectedEvent(null)}
+                       >
+                         <X className="h-4 w-4" />
+                       </Button>
+                     </div>
+
+                     <div className="p-4">
+                       <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-gray-700">
+                         <div className="flex items-center">
+                           <Calendar className="mr-2 h-4 w-4 text-sky-500" />
+                           <span>
+                             {selectedEventData.date
+                               ? format(parseISO(selectedEventData.date), "E, MMM d, yyyy")
+                               : "Date TBD"}
+                           </span>
+                         </div>
+                         <div className="flex items-center">
+                           <MapPin className="mr-2 h-4 w-4 text-sky-500" />
+                           <span>{selectedEventData.location}</span>
+                         </div>
+                         {selectedEventDistance !== null && (
+                           <div className="flex items-center">
+                             <Locate className="mr-2 h-4 w-4 text-sky-500" />
+                             <span>{selectedEventDistance} km away</span>
+                           </div>
+                         )}
+                         <div className="flex items-center">
+                           <span className={cn("mr-2 font-semibold", selectedPriceTone)}>
+                             {selectedPriceLabel}
+                           </span>
+                         </div>
+                       </div>
+
+                       <div className="mt-3 flex items-center space-x-2 text-xs text-gray-500">
+                         <div className="flex items-center">
+                           <Heart className="mr-1 h-3 w-3" /> {selectedAttendanceCounts.interested} interested
+                         </div>
+                         <div className="flex items-center">
+                           <Users className="mr-1 h-3 w-3" /> {selectedAttendanceCounts.attending} going
+                         </div>
+                         <div className="flex items-center">
+                           <Eye className="mr-1 h-3 w-3" /> {selectedEventData.view_count ?? 0} views
+                         </div>
+                       </div>
+
+                       <div className="mt-4 grid grid-cols-2 gap-2">
+                         <Button
+                           variant={selectedIsGoing ? "default" : "outline"}
+                           onClick={() => handleSelectedAttendance("attending")}
+                           disabled={attendanceUpdating === "attending"}
+                         >
+                           {selectedIsGoing ? "You're Going!" : "I'm Going"}
+                         </Button>
+                         <Button
+                           variant="outline"
+                           onClick={() => handleSelectedAttendance("interested")}
+                           disabled={attendanceUpdating === "interested"}
+                         >
+                           Interested
+                         </Button>
+                       </div>
+
+                       <div className="mt-2 flex items-center justify-between">
+                         <LikeButton
+                           eventId={selectedEventData.id}
+                           initialLiked={selectedEventData.is_liked}
+                           onUpdate={loadEvents}
+                         />
+                         <ShareButton event={selectedEventData} />
+                         <Button variant="ghost" size="sm" asChild>
+                           <Link href={`/events/${selectedEventData.id}#comments`}>
+                             <MessageSquare className="mr-2 h-4 w-4" />
+                             Comments
+                           </Link>
+                         </Button>
+                       </div>
+                     </div>
+                   </CardContent>
+                 </Card>
+               </div>
+            )}
           </div>
         </div>
       </div>
