@@ -9,7 +9,7 @@ const Header = () => {
   const { user } = useAuth()
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 shadow-sm backdrop-blur-sm">
+    <header className="sticky top-0 z-[1300] w-full border-b bg-background/95 shadow-sm backdrop-blur-sm">
       <div className="container mx-auto px-4 py-3 flex justify-between items-center">
         <Link href="/" className="flex items-center space-x-2">
           <Image src="/logo.png" alt="Catch My Event Logo" width={32} height={32} />

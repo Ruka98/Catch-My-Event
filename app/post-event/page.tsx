@@ -158,12 +158,6 @@ function PostEventContent() {
               <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">Create Event</h1>
               <p className="text-sm text-gray-600 sm:text-base">Fill in the event details below.</p>
             </div>
-            <Button asChild variant="outline" size="sm" className="rounded-full border-sky-200 text-sky-700 hover:bg-sky-50 bg-transparent">
-              <Link href="/profile" className="flex items-center gap-2">
-                <ArrowLeft className="h-4 w-4" />
-                Back
-              </Link>
-            </Button>
           </div>
         </section>
         <div className="max-w-4xl mx-auto">

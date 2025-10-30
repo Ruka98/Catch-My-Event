@@ -126,8 +126,14 @@ export function LocationPicker({ value, onChange, className, focus, focusZoom = 
             zoom={value ? focusZoom : 7}
             onLoad={onMapLoad}
             onClick={onMapClick}
+            options={{
+              streetViewControl: false,
+              mapTypeControl: false,
+              fullscreenControl: false,
+              gestureHandling: "greedy",
+            }}
           >
-            {value && <Marker position={value} />}
+            {value && <Marker position={value} draggable={true} onDragEnd={onMapClick} />}
           </GoogleMap>
           <div className="pointer-events-none absolute inset-x-3 bottom-3 z-[1000]">
             <div className="pointer-events-auto flex items-center justify-between rounded-md bg-white/90 px-3 py-2 text-xs text-gray-600 shadow-sm backdrop-blur-sm">
