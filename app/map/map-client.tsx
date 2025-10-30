@@ -143,6 +143,18 @@ const GMap = forwardRef(function GMap({
           streetViewControl: false,
           fullscreenControl: false,
           gestureHandling: "greedy",
+          styles: [
+            {
+              featureType: "poi",
+              elementType: "labels",
+              stylers: [{ visibility: "off" }],
+            },
+            {
+              featureType: "poi",
+              elementType: "geometry",
+              stylers: [{ visibility: "off" }],
+            },
+          ],
         }}
       >
         {userLocation && (
@@ -165,7 +177,7 @@ const GMap = forwardRef(function GMap({
           <OverlayView
             key={event.id}
             position={getEventPosition(event)}
-            mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+            mapPaneName={OverlayView.FLOAT_PANE}
             getPixelPositionOffset={() => getPixelPositionOffset(iconSize, iconSize)}
           >
             <div
@@ -183,7 +195,6 @@ const GMap = forwardRef(function GMap({
                   borderRadius: '50%',
                   border: isSelected ? '3px solid #0ea5e9' : '2px solid white',
                   boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
-                  transition: 'all 0.2s ease',
                   objectFit: 'cover',
                 }}
               />
@@ -191,7 +202,7 @@ const GMap = forwardRef(function GMap({
           </OverlayView>
         )})}
 
-        {selectedEventData && <EventPopup event={selectedEventData} onClose={() => onEventSelect(null)} />}
+        {selectedEventData && <EventPopup event={selectedEventData} />}
       </GoogleMap>
       <div className="absolute top-4 right-4 z-[1000] flex flex-col space-y-2">
         {userLocation && (
@@ -208,7 +219,7 @@ const GMap = forwardRef(function GMap({
     </div>
   )
 })
-const EventPopup = ({ event, onClose }: { event: EventWithProfile; onClose: () => void }) => {
+const EventPopup = ({ event }: { event: EventWithProfile }) => {
   const getEventPosition = useCallback((event: EventWithProfile) => {
     const hasPreciseCoords =
       event.latitude !== null &&
@@ -225,15 +236,39 @@ const EventPopup = ({ event, onClose }: { event: EventWithProfile; onClose: () =
       lat: preciseLat ?? fallbackCoords.lat,
       lng: preciseLng ?? fallbackCoords.lng,
     }
-  }, []);
+  }, [])
 
   const formatTime = (time: string | null | undefined) => {
     if (!time) return "TBD"
-    const [hours, minutes] = time.split(":")
-    const date = new Date()
-    date.setHours(parseInt(hours))
-    date.setMinutes(parseInt(minutes))
-    return format(date, "h:mm a")
+
+    const formatSingle = (t: string) => {
+      const [hours, minutes] = t.split(":")
+      const date = new Date()
+      date.setHours(parseInt(hours, 10))
+      date.setMinutes(parseInt(minutes, 10))
+      return format(date, "h:mm a")
+    }
+
+    if (time.startsWith("(") && time.endsWith(")")) {
+      try {
+        const [start, end] = time
+          .slice(1, -1)
+          .split(",")
+          .map((t) => t.trim())
+        return `${formatSingle(start)} - ${formatSingle(end)}`
+      } catch (error) {
+        console.error("Error formatting time range:", error)
+        return "Invalid time range"
+      }
+    }
+
+    // Handle single time format
+    try {
+      return formatSingle(time)
+    } catch (error) {
+      console.error("Error formatting single time:", error)
+      return "Invalid time"
+    }
   }
 
   const priceLabel =
@@ -242,27 +277,24 @@ const EventPopup = ({ event, onClose }: { event: EventWithProfile; onClose: () =
   return (
     <OverlayView
       position={getEventPosition(event)}
-      mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+      mapPaneName={OverlayView.FLOAT_PANE}
       getPixelPositionOffset={(width, height) => ({
         x: -(width / 2),
-        y: -(height + 50),
+        y: -(height + 45),
       })}
     >
-      <div className="relative w-80 rounded-2xl bg-white p-4 shadow-xl transition-all duration-300 ease-in-out">
-        <button
-          onClick={onClose}
-          className="absolute -top-2 -right-2 flex h-7 w-7 items-center justify-center rounded-full bg-gray-200 text-gray-700 shadow-md transition-transform hover:scale-110"
-        >
-          <X size={16} />
-        </button>
-
+      <div
+        className="w-[90vw] max-w-sm rounded-2xl bg-white p-4 shadow-xl transition-all duration-300 ease-in-out sm:w-80"
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="flex">
           <img
             src={event.image_url || "/placeholder.svg"}
             alt={event.title}
             className="h-24 w-24 rounded-lg object-cover"
           />
-          <div className="ml-4 flex flex-col justify-between">
+          <div className="ml-4 flex flex-1 flex-col justify-between">
             <div>
               <h3 className="text-base font-bold text-gray-900">{event.title}</h3>
               <p className="text-xs text-gray-500">{event.location}</p>
@@ -274,7 +306,7 @@ const EventPopup = ({ event, onClose }: { event: EventWithProfile; onClose: () =
               </div>
               <div className="flex items-center text-gray-600">
                 <Clock size={14} className="mr-2 text-sky-500" />
-                {formatTime(event.start_time)}
+                {formatTime(event.time)}
               </div>
               <div className="flex items-center font-semibold text-gray-800">
                 <Ticket size={14} className="mr-2 text-emerald-500" />
