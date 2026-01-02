@@ -61,12 +61,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           router.replace(redirect)
         }
       }
-      // keep server cookies in sync (so middleware sees the session)
-      fetch("/auth/callback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event, session }),
-      }).catch(() => {});
     });
     return () => sub.subscription?.unsubscribe();
   }, [s, loadUser, router]);
