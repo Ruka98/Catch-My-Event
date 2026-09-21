@@ -70,12 +70,30 @@ export default function SignUpPage() {
   }
 
   const handleGoogleSignIn = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
+    setIsLoading(true)
+    setError(null)
+    try {
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+        throw new Error("Supabase environment variables (NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY) are missing.")
+      }
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      })
+
+      if (error) throw error
+
+      if (data?.url) {
+        window.location.href = data.url
+      }
+    } catch (err: any) {
+      console.error("Google sign-in error:", err)
+      setError(err?.message || "Failed to sign in with Google.")
+      setIsLoading(false)
+    }
   }
 
   return (

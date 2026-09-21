@@ -25,6 +25,15 @@ const fallbackClient: SupabaseClient = {
         SupabaseClient["auth"]["getUser"]
       >;
     },
+    async signInWithOAuth() {
+      const err = new Error("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are not configured.");
+      console.error(err);
+      return { data: { provider: "google" as any, url: null }, error: err } as any;
+    },
+    async signInWithPassword() {
+      const err = new Error("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are not configured.");
+      return { data: { user: null, session: null }, error: err } as any;
+    },
     onAuthStateChange() {
       return {
         data: {
