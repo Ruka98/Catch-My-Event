@@ -14,25 +14,32 @@ type LocationPickerProps = {
   className?: string
   focus?: Location | null
   focusZoom?: number
-}
-
-const containerStyle = {
-  width: "100%",
-  height: "400px",
+  height?: string
 }
 
 const libraries: "places"[] = ["places"];
 
-export function LocationPicker({ value, onChange, className, focus, focusZoom = 13 }: LocationPickerProps) {
+export function LocationPicker({ value, onChange, className, focus, focusZoom = 13, height }: LocationPickerProps) {
   const mapRef = useRef<google.maps.Map | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<google.maps.places.PlaceResult[]>([])
   const geocoderRef = useRef<google.maps.Geocoder | null>(null)
 
+  const mapContainerStyle = {
+    width: "100%",
+    height: height || "360px",
+  }
+
   const onMapLoad = useCallback((map: google.maps.Map) => {
     mapRef.current = map
     geocoderRef.current = new window.google.maps.Geocoder()
   }, [])
+
+  useEffect(() => {
+    if (value && mapRef.current) {
+      mapRef.current.panTo(value)
+    }
+  }, [value?.lat, value?.lng])
 
   const onMapClick = useCallback(
     (e: google.maps.MapMouseEvent) => {
@@ -121,7 +128,7 @@ export function LocationPicker({ value, onChange, className, focus, focusZoom = 
         </div>
         <div className="relative location-picker-container">
           <GoogleMap
-            mapContainerStyle={containerStyle}
+            mapContainerStyle={mapContainerStyle}
             center={center}
             zoom={value ? focusZoom : 7}
             onLoad={onMapLoad}
