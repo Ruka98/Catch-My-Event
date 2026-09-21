@@ -81,3 +81,14 @@ export function getSubcategories(category: string): string[] {
   const data = categoryData.categories.find(c => c.name === category);
   return data ? data.subcategories : [];
 }
+
+export const categoryColors: { [key: string]: string } = {
+  "Music": "#FF6347", // Tomato
+  "Performing Arts": "#4682B4", // SteelBlue
+  "Visual Arts": "#32CD32", // LimeGreen
+  "Food & Drink": "#FFD700", // Gold
+  "Sports & Fitness": "#00CED1", // DarkTurquoise
+  "Nightlife": "#9400D3", // DarkViolet
+  "Community": "#FF4500", // OrangeRed
+  "Education": "#1E90FF" // DodgerBlue
+};

@@ -1,25 +1,15 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Calendar, MapPin, Search, Locate, Heart, Users, Eye, X, Filter, MessageSquare, Crosshair, Clock, Ticket, Navigation } from "lucide-react"
+import { Calendar, MapPin, Search, Crosshair, Clock, Ticket, Navigation, X, SlidersHorizontal, Scan } from "lucide-react"
 import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/components/auth-guard"
-import { LikeButton } from "@/components/like-button"
-import { ShareButton } from "@/components/share-button"
 import {
   getEventsClient,
-  searchEventsClient,
-  updateEventViews,
-  toggleEventAttendance,
   type EventWithProfile,
 } from "@/lib/supabase/events.client"
-import { useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
-import { getAttendanceCounts, getAttendanceLabel } from "@/lib/eventAttendance"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -30,17 +20,31 @@ import {
   startOfMonth,
   endOfMonth,
   addMonths,
-  subDays,
   parseISO,
-  isPast,
   isToday,
   isTomorrow,
   format,
 } from "date-fns"
-import { mainCategories, getSubcategories } from "@/lib/constants/categories"
-import { GoogleMap, LoadScript, Marker, InfoWindow, OverlayView } from "@react-google-maps/api"
+import { mainCategories, getSubcategories, categoryColors } from "@/lib/constants/categories"
+import { GoogleMap, LoadScript, Marker, OverlayView } from "@react-google-maps/api"
 
-const categories = ["All", ...mainCategories]
+const DATE_RANGES = [
+  { label: "Today", value: "today" },
+  { label: "Tomorrow", value: "tomorrow" },
+  { label: "This Week", value: "this_week" },
+  { label: "Next Week", value: "next_week" },
+  { label: "This Month", value: "this_month" },
+  { label: "Next Month", value: "next_month" },
+]
+
+const PRICE_RANGES = [
+  { label: "All Prices", value: "all" },
+  { label: "Free", value: "free" },
+  { label: "Under Rs. 500", value: "under_500" },
+  { label: "Rs. 500 - Rs. 1,000", value: "500_1000" },
+  { label: "Rs. 1,000 - Rs. 2,000", value: "1000_2000" },
+  { label: "Over Rs. 2,000", value: "over_2000" },
+]
 
 const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
   Colombo: { lat: 6.9271, lng: 79.8612 },
@@ -53,58 +57,85 @@ const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
   "Mount Lavinia": { lat: 6.8389, lng: 79.8653 },
 }
 
-function calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number) {
-  const R = 6371 // Earth's radius in km
-  const dLat = ((lat2 - lat1) * Math.PI) / 180
-  const dLng = ((lng2 - lng1) * Math.PI) / 180
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return R * c
+function formatPriceInRupees(price: number | null | undefined) {
+  if (price === null || price === undefined) return "Price TBD"
+  if (price === 0) return "Free"
+  return `Rs. ${price.toLocaleString()}`
 }
 
-const libraries: "places"[] = ["places"];
+function formatTime(time: string | null | undefined) {
+  if (!time) return "Time TBD"
+  try {
+    const parts = time.replace(/[()]/g, "").split(",")
+    const formatSingle = (t: string) => {
+      const [hours, minutes] = t.trim().split(":")
+      if (!hours) return t
+      const d = new Date()
+      d.setHours(parseInt(hours, 10))
+      d.setMinutes(parseInt(minutes || "0", 10))
+      return format(d, "h:mm a")
+    }
+    if (parts.length > 1) {
+      return `${formatSingle(parts[0])} - ${formatSingle(parts[1])}`
+    }
+    return formatSingle(parts[0])
+  } catch {
+    return time
+  }
+}
+
+const libraries: "places"[] = ["places"]
 
 const containerStyle = {
-  width: '100%',
-  height: '100%',
-};
+  width: "100%",
+  height: "100%",
+}
 
-const GMap = forwardRef(function GMap({
-  events,
-  selectedEvent,
-  onEventSelect,
-  userLocation,
-}: {
-  events: EventWithProfile[]
-  selectedEvent: string | null
-  onEventSelect: (eventId: string | null) => void
-  userLocation: { lat: number; lng: number } | null
-}, ref) {
-  const mapInstanceRef = useRef<google.maps.Map | null>(null);
+export interface GMapHandle {
+  centerOnUser: () => void
+  setView: (lat: number, lng: number, zoom: number) => void
+  fitBounds: (coords: { lat: number; lng: number }[]) => void
+}
 
-  const centerOnUser = () => {
-    if (mapInstanceRef.current && userLocation) {
-      mapInstanceRef.current.panTo(userLocation);
-      mapInstanceRef.current.setZoom(13);
-    }
+const GMap = forwardRef<
+  GMapHandle,
+  {
+    events: EventWithProfile[]
+    selectedEvent: string | null
+    onEventSelect: (eventId: string | null) => void
+    userLocation: { lat: number; lng: number } | null
   }
+>(function GMap({ events, selectedEvent, onEventSelect, userLocation }, ref) {
+  const mapInstanceRef = useRef<google.maps.Map | null>(null)
+
+  const centerOnUser = useCallback(() => {
+    if (mapInstanceRef.current && userLocation) {
+      mapInstanceRef.current.panTo(userLocation)
+      mapInstanceRef.current.setZoom(13)
+    }
+  }, [userLocation])
 
   useImperativeHandle(ref, () => ({
     centerOnUser,
     setView: (lat: number, lng: number, zoom: number) => {
       if (mapInstanceRef.current) {
-        mapInstanceRef.current.panTo({ lat, lng });
-        mapInstanceRef.current.setZoom(zoom);
+        mapInstanceRef.current.panTo({ lat, lng })
+        mapInstanceRef.current.setZoom(zoom)
       }
     },
-  }));
-
-  const selectedEventData = useMemo(() => {
-    if (!selectedEvent) return null;
-    return events.find(event => event.id === selectedEvent);
-  }, [selectedEvent, events]);
+    fitBounds: (coords: { lat: number; lng: number }[]) => {
+      if (mapInstanceRef.current && coords.length > 0) {
+        if (coords.length === 1) {
+          mapInstanceRef.current.panTo(coords[0])
+          mapInstanceRef.current.setZoom(14)
+          return
+        }
+        const bounds = new google.maps.LatLngBounds()
+        coords.forEach((c) => bounds.extend(c))
+        mapInstanceRef.current.fitBounds(bounds, 80)
+      }
+    },
+  }))
 
   const getEventPosition = useCallback((event: EventWithProfile) => {
     const hasPreciseCoords =
@@ -115,19 +146,13 @@ const GMap = forwardRef(function GMap({
 
     const preciseLat = hasPreciseCoords ? Number(event.latitude) : undefined
     const preciseLng = hasPreciseCoords ? Number(event.longitude) : undefined
-
     const fallbackCoords = CITY_COORDS[event.location] || CITY_COORDS["Colombo"]
 
     return {
       lat: preciseLat ?? fallbackCoords.lat,
       lng: preciseLng ?? fallbackCoords.lng,
     }
-  }, []);
-
-  const getPixelPositionOffset = (width: number, height: number) => ({
-    x: -(width / 2),
-    y: -(height / 2),
-  });
+  }, [])
 
   return (
     <div className="relative h-full w-full">
@@ -135,10 +160,12 @@ const GMap = forwardRef(function GMap({
         mapContainerStyle={containerStyle}
         center={userLocation || { lat: 7.8731, lng: 80.7718 }}
         zoom={8}
-        onLoad={map => { mapInstanceRef.current = map }}
+        onLoad={(map) => {
+          mapInstanceRef.current = map
+        }}
         onClick={() => onEventSelect(null)}
         options={{
-          zoomControl: true,
+          zoomControl: false,
           mapTypeControl: false,
           streetViewControl: false,
           fullscreenControl: false,
@@ -163,232 +190,147 @@ const GMap = forwardRef(function GMap({
             icon={{
               path: google.maps.SymbolPath.CIRCLE,
               scale: 8,
-              fillColor: "#10b981",
+              fillColor: "#4285f4",
               fillOpacity: 1,
               strokeColor: "white",
-              strokeWeight: 2,
+              strokeWeight: 2.5,
             }}
           />
         )}
-        {events.map(event => {
-          const isSelected = selectedEvent === event.id;
-          const iconSize = isSelected ? 44 : 36;
-          return(
-          <OverlayView
-            key={event.id}
-            position={getEventPosition(event)}
-            mapPaneName={OverlayView.FLOAT_PANE}
-            getPixelPositionOffset={() => getPixelPositionOffset(iconSize, iconSize)}
-          >
-            <div
-              style={{
-                cursor: 'pointer',
-              }}
-              onClick={() => onEventSelect(event.id)}
-            >
-              <img
-                src={event.image_url || "/placeholder.svg"}
-                alt={event.title}
-                style={{
-                  width: `${iconSize}px`,
-                  height: `${iconSize}px`,
-                  borderRadius: '50%',
-                  border: isSelected ? '3px solid #0ea5e9' : '2px solid white',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
-                  objectFit: 'cover',
-                }}
-              />
-            </div>
-          </OverlayView>
-        )})}
 
-        {selectedEventData && <EventPopup event={selectedEventData} />}
+        {events.map((event) => {
+          const isSelected = selectedEvent === event.id
+          const catColor = categoryColors[event.category || ""] || "#808080"
+
+          return (
+            <OverlayView
+              key={event.id}
+              position={getEventPosition(event)}
+              mapPaneName={OverlayView.FLOAT_PANE}
+              getPixelPositionOffset={() => ({ x: -27, y: -27 })}
+            >
+              <div
+                className="relative cursor-pointer transition-transform duration-200 hover:scale-110 flex items-center justify-center select-none"
+                style={{ width: "54px", height: "54px" }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onEventSelect(event.id)
+                }}
+              >
+                {event.image_url ? (
+                  <>
+                    <div
+                      className={cn(
+                        "flex items-center justify-center rounded-full overflow-hidden bg-slate-200 transition-all",
+                        isSelected ? "ring-4 ring-[#4285f4] shadow-xl scale-105" : "shadow-md"
+                      )}
+                      style={{
+                        width: "46px",
+                        height: "46px",
+                        border: "2.5px solid #ffffff",
+                      }}
+                    >
+                      <img
+                        src={event.image_url}
+                        alt={event.title}
+                        className="h-[41px] w-[41px] rounded-full object-cover"
+                        onError={(e) => {
+                          ;(e.target as HTMLImageElement).src = "/placeholder.svg"
+                        }}
+                      />
+                    </div>
+                    {/* Category indicator dot matching mobile app */}
+                    <div
+                      className="absolute rounded-full shadow-md"
+                      style={{
+                        bottom: "2px",
+                        right: "2px",
+                        width: "14px",
+                        height: "14px",
+                        border: "2px solid #ffffff",
+                        backgroundColor: catColor,
+                      }}
+                    />
+                  </>
+                ) : (
+                  <div
+                    className={cn(
+                      "flex items-center justify-center rounded-full transition-all shadow-md",
+                      isSelected ? "ring-4 ring-[#4285f4] shadow-xl scale-105" : ""
+                    )}
+                    style={{
+                      width: "44px",
+                      height: "44px",
+                      border: "2.5px solid #ffffff",
+                      backgroundColor: catColor,
+                    }}
+                  >
+                    <Calendar className="h-4 w-4 text-white" />
+                  </div>
+                )}
+              </div>
+            </OverlayView>
+          )
+        })}
       </GoogleMap>
-      <div className="absolute top-4 right-4 z-[1000] flex flex-col space-y-2">
-        {userLocation && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="border-sky-200 bg-white/95 backdrop-blur-sm shadow-lg transition-all duration-200 hover:border-sky-300 hover:bg-sky-50"
-            onClick={centerOnUser}
-          >
-            <Crosshair className="h-4 w-4 text-sky-600" />
-          </Button>
-        )}
-      </div>
     </div>
   )
 })
-const EventPopup = ({ event }: { event: EventWithProfile }) => {
-  const getEventPosition = useCallback((event: EventWithProfile) => {
-    const hasPreciseCoords =
-      event.latitude !== null &&
-      event.latitude !== undefined &&
-      event.longitude !== null &&
-      event.longitude !== undefined
-
-    const preciseLat = hasPreciseCoords ? Number(event.latitude) : undefined
-    const preciseLng = hasPreciseCoords ? Number(event.longitude) : undefined
-
-    const fallbackCoords = CITY_COORDS[event.location] || CITY_COORDS["Colombo"]
-
-    return {
-      lat: preciseLat ?? fallbackCoords.lat,
-      lng: preciseLng ?? fallbackCoords.lng,
-    }
-  }, [])
-
-  const formatTime = (time: string | null | undefined) => {
-    if (!time) return "TBD"
-
-    const formatSingle = (t: string) => {
-      const [hours, minutes] = t.split(":")
-      const date = new Date()
-      date.setHours(parseInt(hours, 10))
-      date.setMinutes(parseInt(minutes, 10))
-      return format(date, "h:mm a")
-    }
-
-    if (time.startsWith("(") && time.endsWith(")")) {
-      try {
-        const [start, end] = time
-          .slice(1, -1)
-          .split(",")
-          .map((t) => t.trim())
-        return `${formatSingle(start)} - ${formatSingle(end)}`
-      } catch (error) {
-        console.error("Error formatting time range:", error)
-        return "Invalid time range"
-      }
-    }
-
-    // Handle single time format
-    try {
-      return formatSingle(time)
-    } catch (error) {
-      console.error("Error formatting single time:", error)
-      return "Invalid time"
-    }
-  }
-
-  const priceLabel =
-    event.price === null ? "TBD" : event.price === 0 ? "Free" : `LKR ${event.price.toLocaleString()}`
-
-  return (
-    <OverlayView
-      position={getEventPosition(event)}
-      mapPaneName={OverlayView.FLOAT_PANE}
-      getPixelPositionOffset={(width, height) => ({
-        x: -(width / 2),
-        y: -(height + 45),
-      })}
-    >
-      <div
-        className="w-[90vw] max-w-sm rounded-2xl bg-white p-4 shadow-xl transition-all duration-300 ease-in-out sm:w-80"
-        onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="flex">
-          <img
-            src={event.image_url || "/placeholder.svg"}
-            alt={event.title}
-            className="h-24 w-24 rounded-lg object-cover"
-          />
-          <div className="ml-4 flex flex-1 flex-col justify-between">
-            <div>
-              <h3 className="text-base font-bold text-gray-900">{event.title}</h3>
-              <p className="text-xs text-gray-500">{event.location}</p>
-            </div>
-            <div className="space-y-1.5 text-xs">
-              <div className="flex items-center text-gray-600">
-                <Calendar size={14} className="mr-2 text-sky-500" />
-                {format(parseISO(event.date!), "E, MMM d, yyyy")}
-              </div>
-              <div className="flex items-center text-gray-600">
-                <Clock size={14} className="mr-2 text-sky-500" />
-                {formatTime(event.time)}
-              </div>
-              <div className="flex items-center font-semibold text-gray-800">
-                <Ticket size={14} className="mr-2 text-emerald-500" />
-                {priceLabel}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <a
-            href={`https://www.google.com/maps/dir/?api=1&destination=${getEventPosition(event).lat},${getEventPosition(event).lng}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center rounded-lg bg-sky-500 py-2 text-xs font-semibold text-white transition-colors hover:bg-sky-600"
-          >
-            <Navigation size={14} className="mr-1.5" />
-            Navigate
-          </a>
-          <Link
-            href={`/events/${event.id}`}
-            className="flex items-center justify-center rounded-lg bg-gray-100 py-2 text-xs font-semibold text-gray-800 transition-colors hover:bg-gray-200"
-          >
-            View Details
-          </Link>
-        </div>
-      </div>
-    </OverlayView>
-  )
-}
 
 GMap.displayName = "GMap"
 
 export default function MapClient() {
-  const [searchTerm, setSearchTerm] = useState("")
-  const [selectedCategory, setSelectedCategory] = useState("All")
-  const [selectedSubcategory, setSelectedSubcategory] = useState("All")
-  const [subcategories, setSubcategories] = useState<string[]>(["All"])
-  const [selectedEvent, setSelectedEvent] = useState<string | null>(null)
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
-  const [priceFilter, setPriceFilter] = useState("all")
-  const [dateFilter, setDateFilter] = useState("this-month")
-  const [events, setEvents] = useState<EventWithProfile[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showSearchAndFilter, setShowSearchAndFilter] = useState(false)
-  const { user } = useAuth()
-
+  const router = useRouter()
   const searchParams = useSearchParams()
   const deepLinkedEventId = searchParams.get("eventId")
-  const supabaseClient = useMemo(() => createClient(), [])
+  const { user } = useAuth()
   const { toast } = useToast()
-  const [attendanceUpdating, setAttendanceUpdating] = useState<"interested" | "attending" | null>(null)
-  const mapRef = useRef<{ centerOnUser: () => void; setView: (lat: number, lng: number, zoom: number) => void } | null>(null);
+  const supabaseClient = useMemo(() => createClient(), [])
 
+  // Map & Location State
+  const mapRef = useRef<GMapHandle | null>(null)
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [events, setEvents] = useState<EventWithProfile[]>([])
+  const [loading, setLoading] = useState(true)
+
+  // Filters & Selection (matching Mobile App)
+  const [selectedEvent, setSelectedEvent] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [debouncedQuery, setDebouncedQuery] = useState("")
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false)
+  const [modalVisible, setModalVisible] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null)
+  const [selectedPrice, setSelectedPrice] = useState<string | null>(null)
+  const [selectedDate, setSelectedDate] = useState<string | null>("this_month")
+
+  // Debounce search query
   useEffect(() => {
-    if (selectedCategory === "All") {
-      setSubcategories(["All"])
-      setSelectedSubcategory("All")
+    const t = setTimeout(() => setDebouncedQuery(searchQuery.trim().toLowerCase()), 250)
+    return () => clearTimeout(t)
+  }, [searchQuery])
+
+  // Get user geolocation
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          })
+        },
+        () => {
+          console.log("Location access denied or unavailable, using Colombo fallback")
+          setUserLocation({ lat: 6.9271, lng: 79.8612 })
+        }
+      )
     } else {
-      const newSubcategories = getSubcategories(selectedCategory)
-      setSubcategories(["All", ...newSubcategories])
-      setSelectedSubcategory("All")
+      setUserLocation({ lat: 6.9271, lng: 79.8612 })
     }
-  }, [selectedCategory])
-
-  const getEventCoordinates = useCallback((event: EventWithProfile) => {
-    if (
-      event.latitude !== null &&
-      event.latitude !== undefined &&
-      event.longitude !== null &&
-      event.longitude !== undefined
-    ) {
-      return {
-        lat: Number(event.latitude),
-        lng: Number(event.longitude),
-      }
-    }
-
-    const fallback = CITY_COORDS[event.location]
-    return fallback ? { ...fallback } : null
   }, [])
 
+  // Load events
   const loadEvents = useCallback(async () => {
     setLoading(true)
     try {
@@ -405,6 +347,7 @@ export default function MapClient() {
     loadEvents()
   }, [loadEvents])
 
+  // Realtime subscription
   useEffect(() => {
     const hasRealtime = typeof (supabaseClient as any)?.channel === "function"
     if (!hasRealtime) return
@@ -426,444 +369,616 @@ export default function MapClient() {
     }
   }, [supabaseClient, loadEvents])
 
-  useEffect(() => {
-    if (!deepLinkedEventId) return
-    const exists = events.some((event) => event.id === deepLinkedEventId)
-    if (exists) {
-      setSelectedEvent(deepLinkedEventId)
+  // Coordinates helper
+  const getEventCoordinates = useCallback((event: EventWithProfile) => {
+    if (
+      event.latitude !== null &&
+      event.latitude !== undefined &&
+      event.longitude !== null &&
+      event.longitude !== undefined
+    ) {
+      return {
+        lat: Number(event.latitude),
+        lng: Number(event.longitude),
+      }
     }
-  }, [deepLinkedEventId, events])
+    const fallback = CITY_COORDS[event.location] || CITY_COORDS["Colombo"]
+    return fallback ? { ...fallback } : null
+  }, [])
 
-  const filteredEvents = events.filter((event) => {
-    const priceValue = event.price ?? 0
-    const matchesCategory = selectedCategory === "All" || event.category === selectedCategory
-    const matchesSubcategory = selectedSubcategory === "All" || event.subcategory === selectedSubcategory
+  // Handle deep link
+  useEffect(() => {
+    if (!deepLinkedEventId || events.length === 0) return
+    const match = events.find((e) => e.id === deepLinkedEventId)
+    if (match) {
+      setSelectedEvent(match.id)
+      const coords = getEventCoordinates(match)
+      if (coords && mapRef.current) {
+        mapRef.current.setView(coords.lat, coords.lng, 14)
+      }
+    }
+  }, [deepLinkedEventId, events, getEventCoordinates])
 
-    const matchesPrice =
-      priceFilter === "all" ||
-      (priceFilter === "free" && priceValue === 0) ||
-      (priceFilter === "1-1000" && priceValue > 0 && priceValue <= 1000) ||
-      (priceFilter === "1001-2500" && priceValue > 1000 && priceValue <= 2500) ||
-      (priceFilter === "2501-5000" && priceValue > 2500 && priceValue <= 5000) ||
-      (priceFilter === "5001+" && priceValue > 5000)
+  // Date Filtering Helper (supports single day and multi-day events)
+  const eventWithinDatePreset = useCallback(
+    (dateStr: string | null | undefined, endDateStr: string | null | undefined, preset: string | null): boolean => {
+      if (!preset || preset === "all") return true
+      if (!dateStr) return false
 
-    const eventDate = event.date ? parseISO(event.date) : null
-    if (!eventDate) return false
+      const eventDate = parseISO(dateStr)
+      const eventEndDate = endDateStr ? parseISO(endDateStr) : eventDate
+      const now = new Date()
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      const tomorrow = new Date(today)
+      tomorrow.setDate(today.getDate() + 1)
 
-    const today = new Date()
-    const matchesDate = (() => {
-      switch (dateFilter) {
-        case "all":
-          return true
+      switch (preset) {
         case "today":
-          return isToday(eventDate)
+          return isWithinInterval(today, { start: eventDate, end: eventEndDate }) || isToday(eventDate)
         case "tomorrow":
-          return isTomorrow(eventDate)
-        case "this-week":
-          return isWithinInterval(eventDate, {
-            start: startOfWeek(today, { weekStartsOn: 1 }),
-            end: endOfWeek(today, { weekStartsOn: 1 }),
-          })
-        case "next-week":
-          const startOfNextWeek = startOfWeek(addWeeks(today, 1), { weekStartsOn: 1 })
-          const endOfNextWeek = endOfWeek(addWeeks(today, 1), { weekStartsOn: 1 })
-          return isWithinInterval(eventDate, { start: startOfNextWeek, end: endOfNextWeek })
-        case "this-month":
-          return isWithinInterval(eventDate, { start: startOfMonth(today), end: endOfMonth(today) })
-        case "next-month":
-          const startOfNextMonth = startOfMonth(addMonths(today, 1))
-          const endOfNextMonth = endOfMonth(addMonths(today, 1))
-          return isWithinInterval(eventDate, { start: startOfNextMonth, end: endOfNextMonth })
-        case "recent":
-          return isWithinInterval(eventDate, { start: subDays(today, 7), end: today }) && isPast(eventDate)
+          return isWithinInterval(tomorrow, { start: eventDate, end: eventEndDate }) || isTomorrow(eventDate)
+        case "this_week": {
+          const start = startOfWeek(today, { weekStartsOn: 1 })
+          const end = endOfWeek(today, { weekStartsOn: 1 })
+          return (
+            (eventDate >= start && eventDate <= end) ||
+            (eventEndDate >= start && eventEndDate <= end) ||
+            (eventDate <= start && eventEndDate >= end)
+          )
+        }
+        case "next_week": {
+          const nextWeekStart = startOfWeek(addWeeks(today, 1), { weekStartsOn: 1 })
+          const nextWeekEnd = endOfWeek(addWeeks(today, 1), { weekStartsOn: 1 })
+          return (
+            (eventDate >= nextWeekStart && eventDate <= nextWeekEnd) ||
+            (eventEndDate >= nextWeekStart && eventEndDate <= nextWeekEnd) ||
+            (eventDate <= nextWeekStart && eventEndDate >= nextWeekEnd)
+          )
+        }
+        case "this_month": {
+          const start = startOfMonth(today)
+          const end = endOfMonth(today)
+          return (
+            (eventDate >= start && eventDate <= end) ||
+            (eventEndDate >= start && eventEndDate <= end) ||
+            (eventDate <= start && eventEndDate >= end)
+          )
+        }
+        case "next_month": {
+          const nextMonthDate = addMonths(today, 1)
+          const start = startOfMonth(nextMonthDate)
+          const end = endOfMonth(nextMonthDate)
+          return (
+            (eventDate >= start && eventDate <= end) ||
+            (eventEndDate >= start && eventEndDate <= end) ||
+            (eventDate <= start && eventEndDate >= end)
+          )
+        }
         default:
           return true
       }
-    })()
+    },
+    []
+  )
 
-    return matchesCategory && matchesSubcategory && matchesPrice && matchesDate
-  })
+  // Filtered Events
+  const filteredEvents = useMemo(() => {
+    return events.filter((event) => {
+      // Category filter
+      if (selectedCategory && selectedCategory !== "All" && event.category !== selectedCategory) {
+        return false
+      }
 
-  useEffect(() => {
-    if (selectedEvent && !filteredEvents.some((event) => event.id === selectedEvent)) {
-      setSelectedEvent(null)
-    }
-  }, [filteredEvents, selectedEvent])
+      // Subcategory filter
+      if (selectedSubCategory && selectedSubCategory !== "All" && event.subcategory !== selectedSubCategory) {
+        return false
+      }
 
-  const selectedEventData = selectedEvent ? events.find((event) => event.id === selectedEvent) ?? null : null
-  const selectedAttendanceCounts = selectedEventData
-    ? getAttendanceCounts(selectedEventData)
-    : { attending: 0, interested: 0 }
-  const selectedAttendanceLabel = getAttendanceLabel(selectedAttendanceCounts)
-  const selectedAttendeeRecord = user
-    ? selectedEventData?.event_attendees?.find((attendee) => attendee.user_id === user.id)
-    : null
-  const selectedIsGoing = selectedAttendeeRecord?.status === "attending";
-  const selectedPriceValue =
-    selectedEventData && typeof selectedEventData.price === "number" && !Number.isNaN(selectedEventData.price)
-      ? selectedEventData.price
-      : null
-  const selectedPriceLabel =
-    selectedPriceValue === null
-      ? "Price TBD"
-      : selectedPriceValue === 0
-        ? "Free"
-        : `LKR ${selectedPriceValue.toLocaleString()}`
-  const selectedPriceTone = selectedPriceValue === 0 ? "text-emerald-600" : "text-gray-900"
-  const selectedEventDistance = (() => {
-    if (!selectedEventData || !userLocation) return null
-    const coords = getEventCoordinates(selectedEventData)
-    if (!coords) return null
-    const distance = calculateDistance(userLocation.lat, userLocation.lng, coords.lat, coords.lng)
-    return Number.isFinite(distance) ? Math.round(distance * 10) / 10 : null
-  })()
-  const highlightEvents = filteredEvents.slice(0, 12)
+      // Price filter
+      const priceValue = event.price ?? 0
+      if (selectedPrice && selectedPrice !== "all") {
+        switch (selectedPrice) {
+          case "free":
+            if (priceValue !== 0) return false
+            break
+          case "under_500":
+            if (!(priceValue > 0 && priceValue < 500)) return false
+            break
+          case "500_1000":
+            if (!(priceValue >= 500 && priceValue <= 1000)) return false
+            break
+          case "1000_2000":
+            if (!(priceValue > 1000 && priceValue <= 2000)) return false
+            break
+          case "over_2000":
+            if (!(priceValue > 2000)) return false
+            break
+        }
+      }
 
-  const handleViewEvent = async (eventId: string) => {
-    try {
-      await updateEventViews(eventId)
-    } catch (error) {
-      console.error("Error recording event view:", error)
+      // Date preset filter
+      if (!eventWithinDatePreset(event.date, (event as any).end_date, selectedDate)) {
+        return false
+      }
+
+      // Search query filter
+      if (debouncedQuery) {
+        const matches =
+          (event.title?.toLowerCase().includes(debouncedQuery) ?? false) ||
+          (event.description?.toLowerCase().includes(debouncedQuery) ?? false) ||
+          (event.category?.toLowerCase().includes(debouncedQuery) ?? false) ||
+          (event.subcategory?.toLowerCase().includes(debouncedQuery) ?? false) ||
+          (event.address?.toLowerCase().includes(debouncedQuery) ?? false) ||
+          (event.city?.toLowerCase().includes(debouncedQuery) ?? false) ||
+          (event.location?.toLowerCase().includes(debouncedQuery) ?? false)
+
+        if (!matches) return false
+      }
+
+      return true
+    })
+  }, [events, selectedCategory, selectedSubCategory, selectedPrice, selectedDate, debouncedQuery, eventWithinDatePreset])
+
+  // Autocomplete suggestions
+  const topSuggestions = useMemo(() => {
+    if (!searchQuery.trim()) return []
+    const q = searchQuery.trim().toLowerCase()
+    return events
+      .filter(
+        (e) =>
+          e.title?.toLowerCase().includes(q) ||
+          (e.city ?? "").toLowerCase().includes(q) ||
+          (e.location ?? "").toLowerCase().includes(q) ||
+          (e.category ?? "").toLowerCase().includes(q)
+      )
+      .slice(0, 5)
+  }, [searchQuery, events])
+
+  // Selected Event Data
+  const selectedEventData = useMemo(() => {
+    if (!selectedEvent) return null
+    return events.find((e) => e.id === selectedEvent) ?? null
+  }, [selectedEvent, events])
+
+  const selectedCoords = useMemo(() => {
+    if (!selectedEventData) return null
+    return getEventCoordinates(selectedEventData)
+  }, [selectedEventData, getEventCoordinates])
+
+  // Event Selection Handler
+  const handleSelectEvent = (eventId: string | null) => {
+    setSelectedEvent(eventId)
+    if (eventId) {
+      const match = events.find((e) => e.id === eventId)
+      if (match) {
+        const coords = getEventCoordinates(match)
+        if (coords && mapRef.current) {
+          mapRef.current.setView(coords.lat, coords.lng, 14)
+        }
+      }
     }
   }
 
-  const handleSelectedAttendance = useCallback(
-    async (action: "interested" | "attending") => {
-      if (!selectedEventData) return
-      if (!user) {
-        toast({ title: "Sign in to RSVP", description: "Log in to mark yourself interested or going." })
-        return
-      }
-      if (attendanceUpdating) return
+  // Suggestion Click Handler
+  const handleSelectSuggestion = (item: EventWithProfile) => {
+    setSearchQuery(item.title || "")
+    setSuggestionsOpen(false)
+    handleSelectEvent(item.id)
+  }
 
-      setAttendanceUpdating(action)
-      try {
-        await toggleEventAttendance(selectedEventData.id, user.id, action)
-        await loadEvents()
-      } catch (error) {
-        console.error("Error updating attendance:", error)
-        toast({
-          title: "Couldn't update RSVP",
-          description: "Please try again in a moment.",
-          variant: "destructive",
-        })
-      } finally {
-        setAttendanceUpdating(null)
-      }
-    },
-    [attendanceUpdating, loadEvents, selectedEventData, toast, user],
-  )
-
-  const handleSearch = () => {
-    setSelectedEvent(null) // Clear any selected event first
-    const term = searchTerm.trim().toLowerCase()
+  // Geocode / Search Submit
+  const handleSearchSubmit = () => {
+    setSuggestionsOpen(false)
+    const term = searchQuery.trim().toLowerCase()
     if (!term) return
 
-    // Prioritize zooming to a known city if the search term is a city name
-    const cityKey = Object.keys(CITY_COORDS).find(c => c.toLowerCase() === term)
+    // Match City coords first
+    const cityKey = Object.keys(CITY_COORDS).find((c) => c.toLowerCase() === term)
     if (cityKey && mapRef.current) {
       const { lat, lng } = CITY_COORDS[cityKey]
-      mapRef.current.setView(lat, lng, 12) // Zoom level 12 for a city
+      mapRef.current.setView(lat, lng, 12)
       return
     }
 
-    // If not a city, find the first matching event from the *all* events list and zoom to it
-    const eventMatches = events.filter(
-      (event) =>
-        event.title.toLowerCase().includes(term) || (event.location ?? "").toLowerCase().includes(term),
+    // Match Event
+    const match = events.find(
+      (e) =>
+        e.title?.toLowerCase().includes(term) ||
+        (e.city ?? "").toLowerCase().includes(term) ||
+        (e.location ?? "").toLowerCase().includes(term)
     )
-
-    if (eventMatches.length > 0) {
-      const firstMatch = eventMatches[0]
-      const coords = getEventCoordinates(firstMatch)
-      if (coords && mapRef.current) {
-        mapRef.current.setView(coords.lat, coords.lng, 14) // Zoom level 14 for an event
-        setSelectedEvent(firstMatch.id) // Select the found event
-      }
+    if (match) {
+      handleSelectEvent(match.id)
     } else {
       toast({
         title: "No results found",
-        description: `Your search for "${searchTerm}" did not match any events or locations.`,
+        description: `Your search for "${searchQuery}" did not match any events.`,
       })
     }
   }
 
-  useEffect(() => {
-    if (navigator.geolocation) {
+  // Locate User FAB
+  const handleMyLocationPress = () => {
+    if (userLocation && mapRef.current) {
+      mapRef.current.setView(userLocation.lat, userLocation.lng, 14)
+    } else if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setUserLocation({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          })
+        (pos) => {
+          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+          setUserLocation(loc)
+          mapRef.current?.setView(loc.lat, loc.lng, 14)
         },
         () => {
-          console.log("Location access denied")
-          setUserLocation({ lat: 6.9271, lng: 79.8612 })
-        },
+          toast({
+            title: "Location access denied",
+            description: "Please enable location services in your browser.",
+          })
+        }
       )
-    } else {
-      setUserLocation({ lat: 6.9271, lng: 79.8612 })
     }
-  }, [])
+  }
+
+  // Fit to Results FAB
+  const handleFitToResults = () => {
+    const coords = filteredEvents
+      .map((e) => getEventCoordinates(e))
+      .filter((c): c is { lat: number; lng: number } => c !== null)
+
+    if (coords.length > 0 && mapRef.current) {
+      mapRef.current.fitBounds(coords)
+    }
+  }
 
   return (
-    <div className="flex h-screen w-screen flex-col">
-      {/* Map and UI Container */}
-      <div className="relative flex-grow">
-        <main className="absolute inset-0 z-0">
-          <LoadScript
-            googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!}
-            libraries={libraries}
-            loadingElement={<div className="h-full w-full animate-pulse bg-gray-200" />}
-          >
-            <GMap
-              ref={mapRef}
-              events={filteredEvents}
-              selectedEvent={selectedEvent}
-              onEventSelect={setSelectedEvent}
-              userLocation={userLocation}
-            />
-          </LoadScript>
-        </main>
+    <div className="relative h-screen w-screen overflow-hidden bg-slate-100 font-sans">
+      {/* Google Map Full View */}
+      <div className="absolute inset-0 z-0">
+        <LoadScript
+          googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!}
+          libraries={libraries}
+          loadingElement={<div className="h-full w-full animate-pulse bg-gray-200" />}
+        >
+          <GMap
+            ref={mapRef}
+            events={filteredEvents}
+            selectedEvent={selectedEvent}
+            onEventSelect={handleSelectEvent}
+            userLocation={userLocation}
+          />
+        </LoadScript>
+      </div>
 
-        {/* UI Controls Overlay */}
-        <div className="pointer-events-none absolute inset-x-0 top-4 z-10 flex flex-col items-center px-4">
-          {!showSearchAndFilter && (
-            <div className="pointer-events-auto" onMouseDown={(e) => e.stopPropagation()}>
-              <Button
-                onClick={() => setShowSearchAndFilter(true)}
-                className="h-12 rounded-full bg-white/90 px-6 text-gray-800 shadow-lg backdrop-blur-md hover:bg-white"
-              >
-                <Search className="mr-2 h-4 w-4" />
-                Search & Filter
-              </Button>
-            </div>
-          )}
-
-          {showSearchAndFilter && (
-            <div
-              className="pointer-events-auto w-full max-w-md self-center rounded-2xl bg-white/90 p-4 shadow-lg backdrop-blur-md"
-              onMouseDown={(e) => e.stopPropagation()}
+      {/* TOP CONTROLS: Floating Search Bar & Horizontal Date Filter Chips */}
+      <div className="pointer-events-none absolute inset-x-0 top-4 z-20 mx-auto max-w-xl px-4 flex flex-col">
+        {/* Floating Search Pill Bar */}
+        <div className="pointer-events-auto relative flex items-center rounded-full bg-white shadow-lg border border-gray-100 p-1.5 transition-all">
+          <Search className="ml-3 h-5 w-5 text-gray-400 flex-shrink-0" />
+          <input
+            type="text"
+            placeholder="Search events, locations, or categories..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value)
+              setSuggestionsOpen(!!e.target.value.trim())
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearchSubmit()
+            }}
+            className="flex-1 bg-transparent px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none"
+          />
+          {searchQuery ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery("")
+                setSuggestionsOpen(false)
+              }}
+              className="p-1.5 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors"
             >
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-800">Search & Filter</h3>
-                <Button variant="ghost" size="sm" onClick={() => setShowSearchAndFilter(false)}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setModalVisible(true)}
+            className="ml-1 flex h-9 w-9 items-center justify-center rounded-full bg-[#4285f4] text-white shadow transition-all hover:bg-[#3367d6] flex-shrink-0"
+            title="Filter Events"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+          </button>
+        </div>
 
-              <div className="mt-4 space-y-4 border-t border-sky-100 pt-4">
-                <div className="relative flex-1">
-                  <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-sky-400" />
-                  <Input
-                    type="text"
-                    placeholder="Search events or locations"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    onKeyPress={(e) => e.key === "Enter" && handleSearch()}
-                    className="h-12 rounded-full border-2 border-sky-200 bg-white/95 pl-12 pr-4 text-sm shadow-inner focus:border-sky-500 focus:ring-sky-200"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div>
-                    <label htmlFor="category-select-map" className="mb-1 block text-xs font-medium text-gray-700">
-                      Category
-                    </label>
-                    <select
-                      id="category-select-map"
-                      value={selectedCategory}
-                      onChange={(e) => setSelectedCategory(e.target.value)}
-                      className="w-full rounded-lg border border-sky-200 bg-white/95 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
-                    >
-                      {categories.map((category) => (
-                        <option key={category} value={category}>
-                          {category}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="subcategory-select-map" className="mb-1 block text-xs font-medium text-gray-700">
-                      Sub-category
-                    </label>
-                    <select
-                      id="subcategory-select-map"
-                      value={selectedSubcategory}
-                      onChange={(e) => setSelectedSubcategory(e.target.value)}
-                      disabled={selectedCategory === "All" || subcategories.length <= 1}
-                      className="w-full rounded-lg border border-sky-200 bg-white/95 px-3 py-2 text-sm disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-sky-400"
-                    >
-                      {subcategories.map((subcategory) => (
-                        <option key={subcategory} value={subcategory}>
-                          {subcategory}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div>
-                    <label htmlFor="date-filter-map" className="mb-1 block text-xs font-medium text-gray-700">
-                      Date
-                    </label>
-                    <select
-                      id="date-filter-map"
-                      value={dateFilter}
-                      onChange={(e) => setDateFilter(e.target.value)}
-                      className="w-full rounded-lg border border-sky-200 bg-white/95 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
-                    >
-                      <option value="all">All Dates</option>
-                      <option value="today">Today</option>
-                      <option value="tomorrow">Tomorrow</option>
-                      <option value="this-week">This Week</option>
-                      <option value="next-week">Next Week</option>
-                      <option value="this-month">This Month</option>
-                      <option value="next-month">Next Month</option>
-                      <option value="recent">Recent Events</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="price-range-select-map" className="mb-1 block text-xs font-medium text-gray-700">
-                      Ticket price
-                    </label>
-                    <select
-                      id="price-range-select-map"
-                      value={priceFilter}
-                      onChange={(e) => setPriceFilter(e.target.value)}
-                      className="w-full rounded-lg border border-sky-200 bg-white/95 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
-                    >
-                      <option value="all">All prices</option>
-                      <option value="free">Free</option>
-                      <option value="1-1000">LKR 1 - 1000</option>
-                      <option value="1001-2500">LKR 1001 - 2500</option>
-                      <option value="2501-5000">LKR 2501 - 5000</option>
-                      <option value="5001+">LKR 5001+</option>
-                    </select>
-                  </div>
+        {/* Autocomplete Suggestions Box */}
+        {suggestionsOpen && topSuggestions.length > 0 && (
+          <div className="pointer-events-auto mt-2 max-h-72 w-full overflow-y-auto rounded-2xl border border-gray-100 bg-white p-2 shadow-xl">
+            {topSuggestions.map((item) => (
+              <div
+                key={item.id}
+                onClick={() => handleSelectSuggestion(item)}
+                className="flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-colors hover:bg-gray-50"
+              >
+                <img
+                  src={item.image_url || "/placeholder.svg"}
+                  alt={item.title}
+                  className="h-10 w-10 rounded-lg object-cover bg-gray-100 flex-shrink-0"
+                  onError={(e) => {
+                    ;(e.target as HTMLImageElement).src = "/placeholder.svg"
+                  }}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-gray-900">{item.title}</p>
+                  <p className="truncate text-xs text-gray-500">
+                    {item.address || item.city || item.location || "Location TBD"}
+                  </p>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* Spacer to push card to the bottom */}
-          <div className="flex-grow" />
-
-          {/* Bottom Overlays */}
-          <div className="w-full">
-            {selectedEventData && (
-                 <div className="pointer-events-auto absolute inset-x-4 bottom-4 z-10 mx-auto max-w-sm">
-                 <Card className="overflow-hidden rounded-2xl border-2 border-sky-200 shadow-xl">
-                   <CardContent className="p-0">
-                     <div className="relative">
-                       <img
-                         src={selectedEventData.image_url ?? "/placeholder.svg"}
-                         alt={selectedEventData.title}
-                         className="h-48 w-full object-cover"
-                       />
-                       <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-                       <div className="absolute bottom-0 left-0 p-4">
-                         <h2 className="text-xl font-bold text-white">{selectedEventData.title}</h2>
-                         <div className="mt-1 flex items-center space-x-2">
-                           <Badge variant="secondary" className="bg-sky-100 text-sky-800">
-                             {selectedEventData.category}
-                           </Badge>
-                           {selectedEventData.subcategory && (
-                             <Badge variant="secondary" className="bg-sky-100/80 text-sky-700">
-                               {selectedEventData.subcategory}
-                             </Badge>
-                           )}
-                         </div>
-                       </div>
-                       <Button
-                         variant="ghost"
-                         size="sm"
-                         className="absolute top-2 right-2 rounded-full bg-black/30 text-white hover:bg-black/50 hover:text-white"
-                         onClick={() => setSelectedEvent(null)}
-                       >
-                         <X className="h-4 w-4" />
-                       </Button>
-                     </div>
-
-                     <div className="p-4">
-                       <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-gray-700">
-                         <div className="flex items-center">
-                           <Calendar className="mr-2 h-4 w-4 text-sky-500" />
-                           <span>
-                             {selectedEventData.date
-                               ? format(parseISO(selectedEventData.date), "E, MMM d, yyyy")
-                               : "Date TBD"}
-                           </span>
-                         </div>
-                         <div className="flex items-center">
-                           <MapPin className="mr-2 h-4 w-4 text-sky-500" />
-                           <span>{selectedEventData.location}</span>
-                         </div>
-                         {selectedEventDistance !== null && (
-                           <div className="flex items-center">
-                             <Locate className="mr-2 h-4 w-4 text-sky-500" />
-                             <span>{selectedEventDistance} km away</span>
-                           </div>
-                         )}
-                         <div className="flex items-center">
-                           <span className={cn("mr-2 font-semibold", selectedPriceTone)}>
-                             {selectedPriceLabel}
-                           </span>
-                         </div>
-                       </div>
-
-                       <div className="mt-3 flex items-center space-x-2 text-xs text-gray-500">
-                         <div className="flex items-center">
-                           <Heart className="mr-1 h-3 w-3" /> {selectedAttendanceCounts.interested} interested
-                         </div>
-                         <div className="flex items-center">
-                           <Users className="mr-1 h-3 w-3" /> {selectedAttendanceCounts.attending} going
-                         </div>
-                         <div className="flex items-center">
-                           <Eye className="mr-1 h-3 w-3" /> {selectedEventData.view_count ?? 0} views
-                         </div>
-                       </div>
-
-                       <div className="mt-4 grid grid-cols-2 gap-2">
-                         <Button
-                           variant={selectedIsGoing ? "default" : "outline"}
-                           onClick={() => handleSelectedAttendance("attending")}
-                           disabled={attendanceUpdating === "attending"}
-                         >
-                           {selectedIsGoing ? "You're Going!" : "I'm Going"}
-                         </Button>
-                         <Button
-                           variant="outline"
-                           onClick={() => handleSelectedAttendance("interested")}
-                           disabled={attendanceUpdating === "interested"}
-                         >
-                           Interested
-                         </Button>
-                       </div>
-
-                       <div className="mt-2 flex items-center justify-between">
-                         <LikeButton
-                           eventId={selectedEventData.id}
-                           initialLiked={selectedEventData.is_liked}
-                           onUpdate={loadEvents}
-                         />
-                         <ShareButton event={selectedEventData} />
-                         <Button variant="ghost" size="sm" asChild>
-                           <Link href={`/events/${selectedEventData.id}#comments`}>
-                             <MessageSquare className="mr-2 h-4 w-4" />
-                             Comments
-                           </Link>
-                         </Button>
-                       </div>
-                     </div>
-                   </CardContent>
-                 </Card>
-               </div>
-            )}
+            ))}
           </div>
+        )}
+
+        {/* Horizontal Date Filter Chips (identical to mobile app) */}
+        <div className="pointer-events-auto mt-3 flex items-center space-x-2 overflow-x-auto py-1 no-scrollbar">
+          {DATE_RANGES.map((range) => {
+            const isActive = selectedDate === range.value
+            return (
+              <button
+                key={range.value}
+                type="button"
+                onClick={() => setSelectedDate(isActive ? null : range.value)}
+                className={cn(
+                  "flex-shrink-0 cursor-pointer whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold shadow-sm transition-all",
+                  isActive
+                    ? "bg-[#4285f4] text-white shadow-md hover:bg-[#3367d6]"
+                    : "border border-gray-100 bg-white/95 text-gray-700 backdrop-blur-sm hover:bg-white hover:text-gray-900"
+                )}
+              >
+                {range.label}
+              </button>
+            )
+          })}
         </div>
       </div>
+
+      {/* FLOATING ACTION BUTTONS (Bottom-Right Cluster matching Mobile) */}
+      <div
+        className={cn(
+          "pointer-events-auto absolute right-4 z-20 flex flex-col space-y-2.5 transition-all duration-300",
+          selectedEventData ? "bottom-64 sm:bottom-56" : "bottom-6"
+        )}
+      >
+        <button
+          type="button"
+          onClick={handleMyLocationPress}
+          title="My Location"
+          className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full border border-gray-100 bg-white text-[#4285f4] shadow-lg transition-transform hover:scale-105 active:scale-95 hover:bg-gray-50"
+        >
+          <Crosshair className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={handleFitToResults}
+          title="Fit to Events"
+          className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full border border-gray-100 bg-white text-[#4285f4] shadow-lg transition-transform hover:scale-105 active:scale-95 hover:bg-gray-50"
+        >
+          <Scan className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* SELECTED EVENT BOTTOM SHEET CARD (Matching Mobile App Layout & Actions) */}
+      {selectedEventData && (
+        <div className="pointer-events-auto absolute inset-x-4 bottom-6 z-20 mx-auto max-w-lg transition-all animate-in fade-in slide-in-from-bottom-6 duration-200">
+          <div className="relative overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl">
+            {/* Close Button */}
+            <button
+              type="button"
+              onClick={() => setSelectedEvent(null)}
+              className="absolute top-3 right-3 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-gray-100/90 text-gray-600 transition-colors hover:bg-gray-200"
+              title="Close card"
+            >
+              <X className="h-4 w-4" />
+            </button>
+
+            {/* Event Info (Clicking opens Event Details) */}
+            <div
+              onClick={() => router.push(`/events/${selectedEventData.id}`)}
+              className="group flex cursor-pointer p-4 transition-colors hover:bg-gray-50/50"
+            >
+              <img
+                src={selectedEventData.image_url || "/placeholder.svg"}
+                alt={selectedEventData.title}
+                className="h-20 w-20 flex-shrink-0 rounded-xl bg-gray-100 object-cover"
+                onError={(e) => {
+                  ;(e.target as HTMLImageElement).src = "/placeholder.svg"
+                }}
+              />
+              <div className="ml-3.5 flex min-w-0 flex-1 flex-col justify-center pr-6">
+                <h3 className="mb-1.5 line-clamp-2 text-base font-bold leading-snug text-gray-900 transition-colors group-hover:text-blue-600 sm:text-lg">
+                  {selectedEventData.title}
+                </h3>
+                <div className="mb-1 flex items-center text-xs text-gray-600 sm:text-sm">
+                  <Calendar className="mr-1.5 h-3.5 w-3.5 flex-shrink-0 text-gray-500" />
+                  <span className="truncate">
+                    {selectedEventData.date
+                      ? format(parseISO(selectedEventData.date), "E, MMM d, yyyy")
+                      : "Date TBD"}
+                  </span>
+                </div>
+                <div className="mb-1 flex items-center text-xs text-gray-600 sm:text-sm">
+                  <Clock className="mr-1.5 h-3.5 w-3.5 flex-shrink-0 text-gray-500" />
+                  <span className="truncate">{formatTime(selectedEventData.time)}</span>
+                </div>
+                <div className="mb-1 flex items-center text-xs text-gray-600 sm:text-sm">
+                  <MapPin className="mr-1.5 h-3.5 w-3.5 flex-shrink-0 text-gray-500" />
+                  <span className="truncate">
+                    {selectedEventData.address ||
+                      selectedEventData.city ||
+                      selectedEventData.location ||
+                      "Location TBD"}
+                  </span>
+                </div>
+                <div className="mb-1 flex items-center text-xs text-gray-600 sm:text-sm">
+                  <Ticket className="mr-1.5 h-3.5 w-3.5 flex-shrink-0 text-gray-500" />
+                  <span className="font-semibold text-gray-800">
+                    {formatPriceInRupees(selectedEventData.price)}
+                  </span>
+                </div>
+                {(selectedEventData.category || selectedEventData.subcategory) && (
+                  <div className="mt-1">
+                    <span className="inline-block rounded-full bg-[#e8f0fe] px-2.5 py-0.5 text-xs font-semibold text-[#1a73e8]">
+                      {selectedEventData.subcategory || selectedEventData.category}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom Actions Row: Navigate (Green) & View Details (Blue) */}
+            <div className="flex items-center gap-3 px-4 pb-4 pt-1">
+              <a
+                href={
+                  selectedCoords
+                    ? `https://www.google.com/maps/dir/?api=1&destination=${selectedCoords.lat},${selectedCoords.lng}`
+                    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                        selectedEventData.address || selectedEventData.city || selectedEventData.title
+                      )}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#34a853] py-2.5 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#2d9248]"
+              >
+                <Navigation className="h-4 w-4" />
+                Navigate
+              </a>
+              <Link
+                href={`/events/${selectedEventData.id}`}
+                className="flex flex-1 items-center justify-center rounded-xl bg-[#4285f4] py-2.5 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#3367d6]"
+              >
+                View Details
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FILTER MODAL (Category, Subcategory, Price matching Mobile) */}
+      {modalVisible && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-6 shadow-2xl sm:rounded-2xl">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+              <h3 className="text-xl font-bold text-gray-900">Filter Events</h3>
+              <button
+                type="button"
+                onClick={() => setModalVisible(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-5 py-5">
+              {/* Category */}
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-gray-800">Category</label>
+                <select
+                  value={selectedCategory || ""}
+                  onChange={(e) => {
+                    setSelectedCategory(e.target.value || null)
+                    setSelectedSubCategory(null)
+                  }}
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#4285f4]"
+                >
+                  <option value="">All Categories</option>
+                  {mainCategories.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Subcategory */}
+              {selectedCategory && (
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-gray-800">Subcategory</label>
+                  <select
+                    value={selectedSubCategory || ""}
+                    onChange={(e) => setSelectedSubCategory(e.target.value || null)}
+                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#4285f4]"
+                  >
+                    <option value="">All Subcategories</option>
+                    {getSubcategories(selectedCategory).map((sub) => (
+                      <option key={sub} value={sub}>
+                        {sub}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Price Range */}
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-gray-800">Ticket Price</label>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {PRICE_RANGES.map((p) => {
+                    const isSelected =
+                      selectedPrice === p.value || (p.value === "all" && !selectedPrice)
+                    return (
+                      <button
+                        key={p.value}
+                        type="button"
+                        onClick={() => setSelectedPrice(p.value === "all" ? null : p.value)}
+                        className={cn(
+                          "rounded-xl border px-3 py-2 text-left text-xs font-medium transition-all sm:text-sm cursor-pointer",
+                          isSelected
+                            ? "border-[#4285f4] bg-blue-50 font-semibold text-[#4285f4]"
+                            : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                        )}
+                      >
+                        {p.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center gap-3 border-t border-gray-100 pt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCategory(null)
+                  setSelectedSubCategory(null)
+                  setSelectedPrice(null)
+                }}
+                className="flex-1 rounded-xl border border-gray-200 py-3 px-4 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+              >
+                Clear All
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setModalVisible(false)
+                  handleFitToResults()
+                }}
+                className="flex-[2] rounded-xl bg-[#4285f4] py-3 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#3367d6]"
+              >
+                Show Events
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loading overlay */}
+      {loading && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-white/70 backdrop-blur-xs">
+          <div className="flex flex-col items-center gap-2">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#4285f4] border-t-transparent" />
+            <p className="text-sm font-medium text-gray-600">Finding amazing events near you...</p>
+          </div>
+        </div>
+      )}
     </div>
-  );
+  )
 }

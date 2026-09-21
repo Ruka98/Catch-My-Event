@@ -80,11 +80,18 @@ export function EventCard({ event, user, onUpdate }: EventCardProps) {
       const d = new Date(event.date)
       if (isNaN(d.getTime())) return `${event.date}${event.time ? ` at ${event.time}` : ""}`
       const base = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
-      return `${base}${event.time ? ` • ${event.time}` : ""}`
+      let dateText = base
+      if (event.end_date && event.end_date !== event.date) {
+        const endD = new Date(event.end_date)
+        if (!isNaN(endD.getTime())) {
+          dateText += ` – ${endD.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`
+        }
+      }
+      return `${dateText}${event.time ? ` • ${event.time}` : ""}`
     } catch {
       return `${event.date}${event.time ? ` at ${event.time}` : ""}`
     }
-  }, [event.date, event.time])
+  }, [event.date, event.end_date, event.time])
 
   const fetchCommentsForEvent = useCallback(async () => {
     setIsLoadingComments(true)
@@ -250,11 +257,22 @@ export function EventCard({ event, user, onUpdate }: EventCardProps) {
           <div className="flex-shrink-0">
             <div className="flex items-center gap-1.5">
               <Avatar className="h-7 w-7 border border-sky-100">
-                <AvatarImage src={event.profiles?.avatar_url ?? undefined} alt={event.profiles?.display_name ?? ""} />
-                <AvatarFallback>{(event.profiles?.display_name ?? "E").charAt(0).toUpperCase()}</AvatarFallback>
+                <AvatarImage
+                  src={
+                    (event as any).profile_id === null
+                      ? "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80"
+                      : (event.profiles?.avatar_url ?? undefined)
+                  }
+                  alt={(event as any).profile_id === null ? "Anonymous Organizer" : (event.profiles?.display_name ?? "")}
+                />
+                <AvatarFallback>
+                  {(event as any).profile_id === null ? "A" : ((event.profiles?.display_name ?? "E").charAt(0).toUpperCase())}
+                </AvatarFallback>
               </Avatar>
-              <div className="text-right leading-tight max-w-[100px]">
-                {event.user_id && event.profiles?.display_name ? (
+              <div className="text-right leading-tight max-w-[110px]">
+                {(event as any).profile_id === null ? (
+                  <p className="text-xs text-gray-500 font-medium truncate">Anonymous</p>
+                ) : event.user_id && event.profiles?.display_name ? (
                   <Link 
                     href={`/profile/${event.user_id}`} 
                     className="text-xs text-gray-800 hover:underline block truncate"

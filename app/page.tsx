@@ -61,7 +61,7 @@ export default function HomePage() {
   const [subcategories, setSubcategories] = useState<string[]>(["All"])
   const [selectedLocation, setSelectedLocation] = useState("All")
   const [priceFilter, setPriceFilter] = useState("all")
-  const [dateFilter, setDateFilter] = useState("this-month")
+  const [dateFilter, setDateFilter] = useState("all")
   const [showFeaturedOnly, setShowFeaturedOnly] = useState(false)
   const [showRecommendedOnly, setShowRecommendedOnly] = useState(false)
   const [events, setEvents] = useState<EventWithProfile[]>([])
@@ -153,18 +153,20 @@ export default function HomePage() {
   }
 
   const filteredEvents = getDisplayEvents().filter((event) => {
-    const term = searchTerm.toLowerCase()
-    const matchesSearch =
-      !term ||
-      event.title.toLowerCase().includes(term) ||
-      event.location.toLowerCase().includes(term) ||
-      (event.description ?? "").toLowerCase().includes(term)
+    const term = searchTerm.toLowerCase().trim()
+    const title = (event.title ?? "").toLowerCase()
+    const loc = (event.location ?? event.venue ?? "").toLowerCase()
+    const desc = (event.description ?? "").toLowerCase()
+    const matchesSearch = !term || title.includes(term) || loc.includes(term) || desc.includes(term)
 
     const matchesCategory = selectedCategory === "All" || event.category === selectedCategory
     // @ts-ignore
     const matchesSubCategory = selectedSubcategory === "All" || event.subcategory === selectedSubcategory
 
-    const matchesLocation = selectedLocation === "All" || event.location === selectedLocation
+    const matchesLocation =
+      selectedLocation === "All" ||
+      loc.includes(selectedLocation.toLowerCase()) ||
+      (event.location && event.location.toLowerCase() === selectedLocation.toLowerCase())
 
     const matchesPrice =
       priceFilter === "all" ||
@@ -174,14 +176,13 @@ export default function HomePage() {
       (priceFilter === "2501-5000" && (event.price ?? 0) > 2500 && (event.price ?? 0) <= 5000) ||
       (priceFilter === "5001+" && (event.price ?? 0) > 5000)
 
-    const eventDate = event.date ? parseISO(event.date) : null
-    if (!eventDate) return false
-
     const today = new Date()
     const matchesDate = (() => {
+      if (dateFilter === "all") return true
+      const eventDate = event.date ? parseISO(event.date) : null
+      if (!eventDate || isNaN(eventDate.getTime())) return true
+
       switch (dateFilter) {
-        case "all":
-          return true
         case "this-week":
           return isWithinInterval(eventDate, {
             start: startOfWeek(today, { weekStartsOn: 1 }),
@@ -204,7 +205,7 @@ export default function HomePage() {
       }
     })()
 
-    const matchesFeatured = !showFeaturedOnly || !!event.featured
+    const matchesFeatured = !showFeaturedOnly || !!event.is_featured || !!(event as any).featured
 
     return (
       matchesSearch &&
