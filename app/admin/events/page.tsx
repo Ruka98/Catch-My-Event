@@ -59,6 +59,76 @@ export default function AdminEventsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null)
 
+  // Edit Event Modal State
+  const [editingEvent, setEditingEvent] = useState<EventItem | null>(null)
+  const [editFormData, setEditFormData] = useState({
+    title: "",
+    category: "",
+    date: "",
+    end_date: "",
+    time: "",
+    venue: "",
+    price: 0,
+    image_url: "",
+    status: "published",
+  })
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
+
+  const openEditModal = (event: EventItem) => {
+    setEditingEvent(event)
+    setEditFormData({
+      title: event.title || "",
+      category: event.category || "Community",
+      date: event.date || "",
+      end_date: event.end_date || "",
+      time: event.time || "",
+      venue: event.venue || "",
+      price: event.price ?? 0,
+      image_url: event.image_url || "",
+      status: event.status || "published",
+    })
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingEvent) return
+    setIsSavingEdit(true)
+    const supabase = createClient()
+    try {
+      const payload = {
+        title: editFormData.title,
+        category: editFormData.category,
+        date: editFormData.date,
+        end_date: editFormData.end_date || null,
+        time: editFormData.time || null,
+        venue: editFormData.venue,
+        location: editFormData.venue || "Colombo",
+        price: Number(editFormData.price) || 0,
+        image_url: editFormData.image_url || null,
+        status: editFormData.status,
+      }
+
+      const { error } = await supabase.from("events").update(payload).eq("id", editingEvent.id)
+      if (error) throw error
+
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id === editingEvent.id
+            ? {
+                ...e,
+                ...payload,
+              }
+            : e
+        )
+      )
+      setEditingEvent(null)
+    } catch (err) {
+      console.error("Error updating event:", err)
+      alert("Failed to update event. Please try again.")
+    } finally {
+      setIsSavingEdit(false)
+    }
+  }
+
   const fetchEvents = useCallback(async () => {
     setLoading(true)
     const supabase = createClient()
@@ -401,9 +471,19 @@ export default function AdminEventsPage() {
                         <Button
                           size="sm"
                           variant="ghost"
+                          onClick={() => openEditModal(event)}
+                          className="h-8 w-8 p-0 text-slate-500 hover:text-sky-600 cursor-pointer"
+                          title="Edit event"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+
+                        <Button
+                          size="sm"
+                          variant="ghost"
                           disabled={actionLoadingId === event.id}
                           onClick={() => deleteEvent(event.id)}
-                          className="h-8 w-8 p-0 text-slate-500 hover:text-red-600"
+                          className="h-8 w-8 p-0 text-slate-500 hover:text-red-600 cursor-pointer"
                           title="Delete event"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -417,6 +497,119 @@ export default function AdminEventsPage() {
           </div>
         )}
       </Card>
+
+      {/* Edit Event Modal */}
+      {editingEvent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h2 className="text-lg font-bold text-slate-900">Edit Event</h2>
+              <button
+                type="button"
+                onClick={() => setEditingEvent(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-sm">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Title</label>
+                <Input
+                  value={editFormData.title}
+                  onChange={(e) => setEditFormData({ ...editFormData, title: e.target.value })}
+                  placeholder="Event title"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Category</label>
+                  <Input
+                    value={editFormData.category}
+                    onChange={(e) => setEditFormData({ ...editFormData, category: e.target.value })}
+                    placeholder="e.g. Music, Community"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Ticket Price (LKR)</label>
+                  <Input
+                    type="number"
+                    value={editFormData.price}
+                    onChange={(e) => setEditFormData({ ...editFormData, price: Number(e.target.value) })}
+                    placeholder="0 for Free"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Date</label>
+                  <Input
+                    type="date"
+                    value={editFormData.date}
+                    onChange={(e) => setEditFormData({ ...editFormData, date: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Time</label>
+                  <Input
+                    value={editFormData.time}
+                    onChange={(e) => setEditFormData({ ...editFormData, time: e.target.value })}
+                    placeholder="e.g. 07:00 PM"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Venue / Location</label>
+                <Input
+                  value={editFormData.venue}
+                  onChange={(e) => setEditFormData({ ...editFormData, venue: e.target.value })}
+                  placeholder="e.g. Nelum Pokuna, Colombo"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Poster Image URL</label>
+                <Input
+                  value={editFormData.image_url}
+                  onChange={(e) => setEditFormData({ ...editFormData, image_url: e.target.value })}
+                  placeholder="https://..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Status</label>
+                <select
+                  value={editFormData.status}
+                  onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value })}
+                  className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+                >
+                  <option value="published">Published (Visible to all)</option>
+                  <option value="hidden">Hidden / Suspended</option>
+                  <option value="draft">Draft</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t">
+              <Button variant="outline" onClick={() => setEditingEvent(null)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveEdit}
+                disabled={isSavingEdit}
+                className="bg-sky-600 hover:bg-sky-700 text-white"
+              >
+                {isSavingEdit ? "Saving..." : "Save Changes"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+

@@ -154,6 +154,8 @@ const GMap = forwardRef<
     }
   }, [])
 
+  const stableMarkerOffset = useCallback(() => ({ x: -27, y: -27 }), [])
+
   return (
     <div className="relative h-full w-full">
       <GoogleMap
@@ -206,12 +208,18 @@ const GMap = forwardRef<
             <OverlayView
               key={event.id}
               position={getEventPosition(event)}
-              mapPaneName={OverlayView.FLOAT_PANE}
-              getPixelPositionOffset={() => ({ x: -27, y: -27 })}
+              mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+              getPixelPositionOffset={stableMarkerOffset}
             >
               <div
-                className="relative cursor-pointer transition-transform duration-200 hover:scale-110 flex items-center justify-center select-none"
-                style={{ width: "54px", height: "54px" }}
+                className="relative cursor-pointer transition-transform duration-150 hover:scale-110 flex items-center justify-center select-none"
+                style={{
+                  width: "54px",
+                  height: "54px",
+                  willChange: "transform",
+                  transform: "translate3d(0,0,0)",
+                  WebkitBackfaceVisibility: "hidden",
+                }}
                 onClick={(e) => {
                   e.stopPropagation()
                   onEventSelect(event.id)
@@ -275,6 +283,7 @@ const GMap = forwardRef<
       </GoogleMap>
     </div>
   )
+
 })
 
 GMap.displayName = "GMap"
