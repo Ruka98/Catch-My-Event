@@ -10,6 +10,8 @@ type User = {
   name?: string | null;
   avatar?: string | null;
   isAdmin?: boolean;
+  isSuspended?: boolean;
+  suspensionReason?: string | null;
 };
 
 type AuthContextType = {
@@ -31,14 +33,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const u = data.user;
       if (u) {
         let isAdmin = false;
+        let isSuspended = false;
+        let suspensionReason: string | null = null;
         try {
           const { data: prof } = await s
             .from("profiles")
-            .select("is_admin")
+            .select("is_admin, is_suspended, suspension_reason")
             .eq("id", u.id)
             .maybeSingle();
           if (prof?.is_admin) {
             isAdmin = true;
+          }
+          if (prof?.is_suspended) {
+            isSuspended = true;
+            suspensionReason = prof.suspension_reason || null;
           }
         } catch {
           // ignore if column not yet queried
@@ -50,6 +58,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           name: u.user_metadata?.name ?? u.email ?? "User",
           avatar: u.user_metadata?.avatar_url ?? null,
           isAdmin,
+          isSuspended,
+          suspensionReason,
         });
       } else {
         setUser(null);

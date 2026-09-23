@@ -25,7 +25,13 @@ import {
   User,
   Mail,
   Phone,
-  Globe
+  Globe,
+  Compass,
+  Copy,
+  AlertTriangle,
+  Ban,
+  Zap,
+  Check,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -38,6 +44,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  resolveEventLocation,
+  LocationResolutionResult,
+  isWithinSriLanka,
+} from "@/lib/admin/geocoding-resolver"
+import {
+  findSuspectDuplicates,
+  auditEventSanity,
+  generatePreEditSuggestions,
+  DuplicateCluster,
+  SanityIssue,
+  EventAuditItem,
+  PreEditSuggestion,
+} from "@/lib/admin/quality-engine"
+import { LocationResolverModal } from "@/components/admin/location-resolver-modal"
+import { DuplicateMergeModal } from "@/components/admin/duplicate-merge-modal"
+import { SuspendUserModal } from "@/components/admin/suspend-user-modal"
 
 function formatUploadTime(dateStr: string | null | undefined) {
   if (!dateStr) return "Unknown"
@@ -77,48 +100,32 @@ function timeAgo(dateStr: string | null | undefined) {
   }
 }
 
-interface EventItem {
-  id: string
-  title: string
-  category: string | null
-  date: string | null
-  end_date?: string | null
-  time?: string | null
-  venue: string | null
-  location?: string | null
-  latitude?: number | null
-  longitude?: number | null
-  price?: number | null
-  image_url: string | null
-  is_featured?: boolean
-  status?: string
-  views?: number
-  created_at: string | null
-  user_id?: string | null
-  profile_id?: string | null
-  contact_email?: string | null
-  contact_phone?: string | null
-  website_url?: string | null
-  profiles?: {
-    id?: string
-    display_name: string | null
-    user_name: string | null
-    avatar_url: string | null
-  } | null
-  attendees_count?: number
-}
-
 export default function AdminEventsPage() {
-  const [events, setEvents] = useState<EventItem[]>([])
+  const [events, setEvents] = useState<EventAuditItem[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
   const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [healthFilter, setHealthFilter] = useState<
+    "all" | "auto_location" | "admin_location" | "mismatch_location" | "duplicates" | "sanity_issues" | "suspended_authors" | "suggestions"
+  >("all")
   const [sortBy, setSortBy] = useState<"created_desc" | "created_asc" | "event_date_asc" | "event_date_desc" | "title_asc">("created_desc")
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null)
+  const [batchResolving, setBatchResolving] = useState(false)
+
+  // Quality & Intelligence Modals
+  const [activeLocationEvent, setActiveLocationEvent] = useState<EventAuditItem | null>(null)
+  const [activeDuplicateCluster, setActiveDuplicateCluster] = useState<DuplicateCluster | null>(null)
+  const [activeSuspendUser, setActiveSuspendUser] = useState<{
+    id: string
+    display_name: string | null
+    user_name: string | null
+    events_count?: number
+  } | null>(null)
+  const [dismissedDuplicatePairs, setDismissedDuplicatePairs] = useState<Set<string>>(new Set())
 
   // Edit Event Modal State
-  const [editingEvent, setEditingEvent] = useState<EventItem | null>(null)
+  const [editingEvent, setEditingEvent] = useState<EventAuditItem | null>(null)
   const [editFormData, setEditFormData] = useState({
     title: "",
     category: "",
@@ -137,9 +144,11 @@ export default function AdminEventsPage() {
     status: "published",
   })
   const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [appliedSuggestionIds, setAppliedSuggestionIds] = useState<Set<string>>(new Set())
 
-  const openEditModal = (event: EventItem) => {
+  const openEditModal = (event: EventAuditItem) => {
     setEditingEvent(event)
+    setAppliedSuggestionIds(new Set())
     setEditFormData({
       title: event.title || "",
       category: event.category || "Community",
@@ -159,42 +168,53 @@ export default function AdminEventsPage() {
     })
   }
 
-  const handleLocationChange = async (coords: { lat: number; lng: number } | null) => {
-    if (!coords) {
-      setEditFormData((prev) => ({ ...prev, latitude: null, longitude: null }))
-      return
-    }
-    const newLat = Number(coords.lat.toFixed(6))
-    const newLng = Number(coords.lng.toFixed(6))
-    setEditFormData((prev) => ({
-      ...prev,
-      latitude: newLat,
-      longitude: newLng,
-    }))
+  const preEditSuggestions = useMemo(() => {
+    if (!editingEvent) return []
+    return generatePreEditSuggestions(editingEvent)
+  }, [editingEvent])
 
-    // Reverse geocode to suggest venue name or area if venue is missing
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${coords.lat}&lon=${coords.lng}`,
-        { headers: { "User-Agent": "CatchMyEventAdmin/1.0" } }
-      )
-      const data = await response.json()
-      if (data && data.display_name) {
-        setEditFormData((prev) => ({
-          ...prev,
-          location:
-            data.address?.city ||
-            data.address?.town ||
-            data.address?.suburb ||
-            data.address?.county ||
-            prev.location ||
-            "Colombo",
-          venue: prev.venue && prev.venue !== "Location TBA" ? prev.venue : data.display_name,
-        }))
+  const handleApplySuggestion = (s: PreEditSuggestion) => {
+    setEditFormData((prev) => {
+      const updated = { ...prev }
+      if (s.field === "title") updated.title = s.suggestedValue
+      else if (s.field === "category") updated.category = s.suggestedValue
+      else if (s.field === "price") updated.price = Number(s.suggestedValue)
+      else if (s.field === "date") updated.date = s.suggestedValue
+      else if (s.field === "end_date") updated.end_date = s.suggestedValue
+      else if (s.field === "status") updated.status = s.suggestedValue
+      else if (s.field === "contact_phone") updated.contact_phone = s.suggestedValue
+      else if (s.field === "location" && s.meta) {
+        if (s.meta.latitude != null) updated.latitude = s.meta.latitude
+        if (s.meta.longitude != null) updated.longitude = s.meta.longitude
+        if (s.meta.venue) updated.venue = s.meta.venue
+        if (s.meta.location) updated.location = s.meta.location
       }
-    } catch (e) {
-      console.warn("Reverse geocode warning:", e)
-    }
+      return updated
+    })
+    setAppliedSuggestionIds((prev) => new Set([...Array.from(prev), s.id]))
+  }
+
+  const handleApplyAllSuggestions = () => {
+    setEditFormData((prev) => {
+      let updated = { ...prev }
+      for (const s of preEditSuggestions) {
+        if (s.field === "title") updated.title = s.suggestedValue
+        else if (s.field === "category") updated.category = s.suggestedValue
+        else if (s.field === "price") updated.price = Number(s.suggestedValue)
+        else if (s.field === "date") updated.date = s.suggestedValue
+        else if (s.field === "end_date") updated.end_date = s.suggestedValue
+        else if (s.field === "status") updated.status = s.suggestedValue
+        else if (s.field === "contact_phone") updated.contact_phone = s.suggestedValue
+        else if (s.field === "location" && s.meta) {
+          if (s.meta.latitude != null) updated.latitude = s.meta.latitude
+          if (s.meta.longitude != null) updated.longitude = s.meta.longitude
+          if (s.meta.venue) updated.venue = s.meta.venue
+          if (s.meta.location) updated.location = s.meta.location
+        }
+      }
+      return updated
+    })
+    setAppliedSuggestionIds(new Set(preEditSuggestions.map((s) => s.id)))
   }
 
   const handleSaveEdit = async () => {
@@ -274,7 +294,9 @@ export default function AdminEventsPage() {
             id,
             display_name,
             user_name,
-            avatar_url
+            avatar_url,
+            is_suspended,
+            suspension_reason
           ),
           event_attendees (count)
         `)
@@ -284,7 +306,7 @@ export default function AdminEventsPage() {
 
       const normalized = (data || []).map((e: any) => ({
         ...e,
-        attendees_count: Array.isArray(e.event_attendees) && e.event_attendees.length > 0 ? e.event_attendees[0].count : 0
+        attendees_count: Array.isArray(e.event_attendees) && e.event_attendees.length > 0 ? e.event_attendees[0].count : 0,
       }))
 
       setEvents(normalized)
@@ -298,6 +320,149 @@ export default function AdminEventsPage() {
   useEffect(() => {
     fetchEvents()
   }, [fetchEvents])
+
+  // Quality Intelligence Memos
+  const locationResolutions = useMemo(() => {
+    const map = new Map<string, LocationResolutionResult>()
+    events.forEach((e) => {
+      map.set(e.id, resolveEventLocation(e.venue, e.location, e.latitude, e.longitude))
+    })
+    return map
+  }, [events])
+
+  const duplicateClusters = useMemo(() => {
+    const clusters = findSuspectDuplicates(events)
+    return clusters.filter((c) => {
+      const key = [c.primaryEvent.id, c.duplicateEvent.id].sort().join("::")
+      return !dismissedDuplicatePairs.has(key)
+    })
+  }, [events, dismissedDuplicatePairs])
+
+  const duplicateEventIdMap = useMemo(() => {
+    const map = new Map<string, DuplicateCluster>()
+    duplicateClusters.forEach((c) => {
+      map.set(c.primaryEvent.id, c)
+      map.set(c.duplicateEvent.id, c)
+    })
+    return map
+  }, [duplicateClusters])
+
+  const sanityIssuesMap = useMemo(() => {
+    const map = new Map<string, SanityIssue[]>()
+    events.forEach((e) => {
+      const issues = auditEventSanity(e)
+      if (issues.length > 0) map.set(e.id, issues)
+    })
+    return map
+  }, [events])
+
+  // Quality Issue Counters
+  const autoLocationCount = useMemo(() => {
+    let count = 0
+    events.forEach((e) => {
+      if (locationResolutions.get(e.id)?.tier === "tier_2_auto") count++
+    })
+    return count
+  }, [events, locationResolutions])
+
+  const adminLocationCount = useMemo(() => {
+    let count = 0
+    events.forEach((e) => {
+      const res = locationResolutions.get(e.id)
+      if (res?.tier === "tier_3_admin" && (res.distanceDeviationKm == null || res.distanceDeviationKm <= 15)) {
+        count++
+      }
+    })
+    return count
+  }, [events, locationResolutions])
+
+  const mismatchCount = useMemo(() => {
+    let count = 0
+    events.forEach((e) => {
+      const res = locationResolutions.get(e.id)
+      if (res?.distanceDeviationKm !== undefined && res.distanceDeviationKm > 15) {
+        count++
+      }
+    })
+    return count
+  }, [events, locationResolutions])
+
+  const sanityCount = sanityIssuesMap.size
+  const suspendedAuthorCount = useMemo(() => {
+    return events.filter((e) => e.profiles?.is_suspended).length
+  }, [events])
+
+  const suggestionsMap = useMemo(() => {
+    const map = new Map<string, PreEditSuggestion[]>()
+    events.forEach((e) => {
+      const suggestions = generatePreEditSuggestions(e)
+      if (suggestions.length > 0) map.set(e.id, suggestions)
+    })
+    return map
+  }, [events])
+
+  const suggestionsCount = suggestionsMap.size
+
+  // Batch Auto-Apply All High-Confidence Locations
+  const handleBatchAutoApplyLocations = async () => {
+    const autoCandidates = events.filter((e) => locationResolutions.get(e.id)?.tier === "tier_2_auto")
+    if (autoCandidates.length === 0) return
+
+    if (
+      !confirm(
+        `⚡ Auto-Apply Geocoding: Do you want to automatically set GPS coordinates and city for all ${autoCandidates.length} recognized venues?`
+      )
+    ) {
+      return
+    }
+
+    setBatchResolving(true)
+    const supabase = createClient()
+    let successCount = 0
+
+    try {
+      for (const e of autoCandidates) {
+        const res = locationResolutions.get(e.id)
+        if (res?.suggestedCandidates && res.suggestedCandidates.length > 0) {
+          const best = res.suggestedCandidates[0]
+          const payload = {
+            latitude: best.lat,
+            longitude: best.lng,
+            location: best.city || e.location || "Colombo",
+          }
+          const { error } = await supabase.from("events").update(payload).eq("id", e.id)
+          if (!error) {
+            successCount++
+            setEvents((prev) =>
+              prev.map((item) => (item.id === e.id ? { ...item, ...payload } : item))
+            )
+          }
+        }
+      }
+      alert(`Successfully auto-geocoded ${successCount} events!`)
+    } catch (err: any) {
+      alert("Batch geocoding error: " + err.message)
+    } finally {
+      setBatchResolving(false)
+    }
+  }
+
+  // Location Saved Callback from LocationResolverModal
+  const handleLocationSaved = (
+    eventId: string,
+    updated: { latitude: number | null; longitude: number | null; venue: string; location: string }
+  ) => {
+    setEvents((prev) =>
+      prev.map((e) => (e.id === eventId ? { ...e, ...updated } : e))
+    )
+  }
+
+  // Duplicate Merge Callback
+  const handleMergeComplete = (primaryId: string, removedId: string) => {
+    setEvents((prev) =>
+      prev.map((e) => (e.id === removedId ? { ...e, status: "hidden" } : e))
+    )
+  }
 
   // Toggle Featured status
   const toggleFeatured = async (id: string, current: boolean | undefined) => {
@@ -373,7 +538,27 @@ export default function AdminEventsPage() {
         (statusFilter === "published" && event.status !== "hidden") ||
         (statusFilter === "hidden" && event.status === "hidden")
 
-      return matchesSearch && matchesCategory && matchesStatus
+      // Health Filter checks
+      let matchesHealth = true
+      const res = locationResolutions.get(event.id)
+
+      if (healthFilter === "auto_location") {
+        matchesHealth = res?.tier === "tier_2_auto"
+      } else if (healthFilter === "admin_location") {
+        matchesHealth = res?.tier === "tier_3_admin" && (res.distanceDeviationKm == null || res.distanceDeviationKm <= 15)
+      } else if (healthFilter === "mismatch_location") {
+        matchesHealth = Boolean(res?.distanceDeviationKm && res.distanceDeviationKm > 15)
+      } else if (healthFilter === "duplicates") {
+        matchesHealth = duplicateEventIdMap.has(event.id)
+      } else if (healthFilter === "sanity_issues") {
+        matchesHealth = sanityIssuesMap.has(event.id)
+      } else if (healthFilter === "suspended_authors") {
+        matchesHealth = Boolean(event.profiles?.is_suspended)
+      } else if (healthFilter === "suggestions") {
+        matchesHealth = suggestionsMap.has(event.id)
+      }
+
+      return matchesSearch && matchesCategory && matchesStatus && matchesHealth
     })
 
     return list.sort((a, b) => {
@@ -398,7 +583,18 @@ export default function AdminEventsPage() {
       }
       return 0
     })
-  }, [events, searchQuery, selectedCategory, statusFilter, sortBy])
+  }, [
+    events,
+    searchQuery,
+    selectedCategory,
+    statusFilter,
+    healthFilter,
+    sortBy,
+    locationResolutions,
+    duplicateEventIdMap,
+    sanityIssuesMap,
+    suggestionsMap,
+  ])
 
   // Extract unique categories for filter dropdown
   const categories = useMemo(() => {
@@ -414,17 +610,143 @@ export default function AdminEventsPage() {
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Event Moderation & Verification</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Event Moderation & Quality Intelligence</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Review event submissions, verify organizers, update details, or remove events across Catch My Event.
+            Automated location verification, duplicate handling, sanity heuristics, and anti-spam moderation.
           </p>
         </div>
-        <Link href="/post-event">
-          <Button className="bg-sky-600 hover:bg-sky-700 text-white shadow-sm">
-            <Plus className="h-4 w-4 mr-1.5" />
-            Add Event
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          {autoLocationCount > 0 && (
+            <Button
+              onClick={handleBatchAutoApplyLocations}
+              disabled={batchResolving}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm text-xs"
+            >
+              <Zap className="h-3.5 w-3.5 mr-1" />
+              {batchResolving ? "Resolving..." : `Auto-Apply All (${autoLocationCount}) GPS`}
+            </Button>
+          )}
+          <Link href="/post-event">
+            <Button className="bg-sky-600 hover:bg-sky-700 text-white shadow-sm text-xs">
+              <Plus className="h-4 w-4 mr-1.5" />
+              Add Event
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      {/* Top Health Intelligence Summary Bar (3-Tier & Quality Filter Pills) */}
+      <div className="flex flex-wrap items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl shadow-xs">
+        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mr-1">Quality Health:</span>
+
+        <button
+          onClick={() => setHealthFilter("all")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            healthFilter === "all"
+              ? "bg-slate-900 text-white shadow-xs"
+              : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+          }`}
+        >
+          All ({events.length})
+        </button>
+
+        <button
+          onClick={() => setHealthFilter("auto_location")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            healthFilter === "auto_location"
+              ? "bg-blue-600 text-white shadow-xs"
+              : autoLocationCount > 0
+              ? "bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100"
+              : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+          }`}
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          <span>⚡ Auto-Resolvable GPS ({autoLocationCount})</span>
+        </button>
+
+        <button
+          onClick={() => setHealthFilter("admin_location")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            healthFilter === "admin_location"
+              ? "bg-amber-600 text-white shadow-xs"
+              : adminLocationCount > 0
+              ? "bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100"
+              : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+          }`}
+        >
+          <Compass className="h-3.5 w-3.5" />
+          <span>🧭 Needs Admin GPS ({adminLocationCount})</span>
+        </button>
+
+        <button
+          onClick={() => setHealthFilter("mismatch_location")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            healthFilter === "mismatch_location"
+              ? "bg-rose-600 text-white shadow-xs"
+              : mismatchCount > 0
+              ? "bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100"
+              : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+          }`}
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+          <span>⚠️ Location Mismatch ({mismatchCount})</span>
+        </button>
+
+        <button
+          onClick={() => setHealthFilter("duplicates")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            healthFilter === "duplicates"
+              ? "bg-purple-600 text-white shadow-xs"
+              : duplicateClusters.length > 0
+              ? "bg-purple-50 text-purple-800 border border-purple-200 hover:bg-purple-100"
+              : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+          }`}
+        >
+          <Copy className="h-3.5 w-3.5" />
+          <span>👯 Suspect Duplicates ({duplicateClusters.length})</span>
+        </button>
+
+        <button
+          onClick={() => setHealthFilter("sanity_issues")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            healthFilter === "sanity_issues"
+              ? "bg-orange-600 text-white shadow-xs"
+              : sanityCount > 0
+              ? "bg-orange-50 text-orange-800 border border-orange-200 hover:bg-orange-100"
+              : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+          }`}
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+          <span>🚩 Sanity Issues ({sanityCount})</span>
+        </button>
+
+        <button
+          onClick={() => setHealthFilter("suggestions")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            healthFilter === "suggestions"
+              ? "bg-sky-600 text-white shadow-xs"
+              : suggestionsCount > 0
+              ? "bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100"
+              : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+          }`}
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          <span>💡 Pre-Edit Improvements ({suggestionsCount})</span>
+        </button>
+
+        {suspendedAuthorCount > 0 && (
+          <button
+            onClick={() => setHealthFilter("suspended_authors")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+              healthFilter === "suspended_authors"
+                ? "bg-rose-700 text-white shadow-xs"
+                : "bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100"
+            }`}
+          >
+            <Ban className="h-3.5 w-3.5" />
+            <span>🚫 Suspended Authors ({suspendedAuthorCount})</span>
+          </button>
+        )}
       </div>
 
       {/* Filter and Search Bar */}
@@ -490,12 +812,13 @@ export default function AdminEventsPage() {
 
         <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
           <span>Showing {filteredEvents.length} of {events.length} total events</span>
-          {(searchQuery || selectedCategory !== "all" || statusFilter !== "all" || sortBy !== "created_desc") && (
+          {(searchQuery || selectedCategory !== "all" || statusFilter !== "all" || healthFilter !== "all" || sortBy !== "created_desc") && (
             <button
               onClick={() => {
                 setSearchQuery("")
                 setSelectedCategory("all")
                 setStatusFilter("all")
+                setHealthFilter("all")
                 setSortBy("created_desc")
               }}
               className="text-sky-600 hover:underline font-medium"
@@ -511,7 +834,7 @@ export default function AdminEventsPage() {
         {loading ? (
           <div className="p-12 text-center text-sm text-slate-500">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-sky-600 border-t-transparent mx-auto mb-2" />
-            Loading events...
+            Loading events & running quality checks...
           </div>
         ) : filteredEvents.length === 0 ? (
           <div className="p-12 text-center text-sm text-slate-500">
@@ -522,10 +845,11 @@ export default function AdminEventsPage() {
             <table className="w-full text-left text-sm text-slate-600">
               <thead className="bg-slate-50/80 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 <tr>
-                  <th className="px-4 py-3 min-w-[250px]">Event & Venue</th>
+                  <th className="px-4 py-3 min-w-[280px]">Event & Quality Status</th>
+                  <th className="px-4 py-3 min-w-[180px]">Location Intelligence</th>
                   <th className="px-4 py-3 min-w-[170px]">Uploaded By</th>
                   <th
-                    className="px-4 py-3 min-w-[150px] cursor-pointer select-none hover:text-sky-700 transition-colors"
+                    className="px-4 py-3 min-w-[140px] cursor-pointer select-none hover:text-sky-700 transition-colors"
                     onClick={() => setSortBy((prev) => (prev === "created_desc" ? "created_asc" : "created_desc"))}
                     title="Click to toggle upload time sorting (Newest / Oldest)"
                   >
@@ -547,199 +871,347 @@ export default function AdminEventsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredEvents.map((event) => (
-                  <tr key={event.id} className="hover:bg-slate-50/50 transition-colors">
-                    {/* Event & Venue */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={event.image_url || "https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?w=100&auto=format&fit=crop&q=80"}
-                          alt={event.title}
-                          className="h-12 w-12 rounded-lg object-cover bg-slate-100 shrink-0 shadow-xs"
-                        />
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="font-semibold text-slate-900 truncate max-w-[220px]" title={event.title}>
-                              {event.title}
-                            </p>
-                            {event.is_featured && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800">
-                                Featured
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className="text-xs text-slate-500 truncate max-w-[180px]" title={event.venue || ""}>
-                              {event.venue || "No location specified"}
-                            </span>
-                            {event.latitude != null && event.longitude != null ? (
-                              <span
-                                className="inline-flex items-center gap-0.5 text-[10px] font-mono font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 shrink-0"
-                                title={`GPS: ${event.latitude}, ${event.longitude}`}
-                              >
-                                <MapPin className="h-2.5 w-2.5 text-emerald-600" />
-                                Pin
-                              </span>
-                            ) : (
-                              <span
-                                className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 shrink-0"
-                                title="No GPS coordinates. Edit to pin on map."
-                              >
-                                No Pin
-                              </span>
-                            )}
+                {filteredEvents.map((event) => {
+                  const locRes = locationResolutions.get(event.id)
+                  const dupCluster = duplicateEventIdMap.get(event.id)
+                  const sanityIssues = sanityIssuesMap.get(event.id)
+                  const eventSuggestions = suggestionsMap.get(event.id) || []
+
+                  return (
+                    <tr key={event.id} className="hover:bg-slate-50/50 transition-colors">
+                      {/* Event & Quality Status */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-start gap-3">
+                          <img
+                            src={event.image_url || "https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?w=100&auto=format&fit=crop&q=80"}
+                            alt={event.title}
+                            className="h-12 w-12 rounded-lg object-cover bg-slate-100 shrink-0 shadow-xs mt-0.5"
+                          />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="font-semibold text-slate-900 truncate max-w-[220px]" title={event.title}>
+                                {event.title}
+                              </p>
+                              {event.is_featured && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800">
+                                  Featured
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Duplicate, Sanity, and Pre-Edit Badges */}
+                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                              {dupCluster && (
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveDuplicateCluster(dupCluster)}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-900 border border-purple-200 hover:bg-purple-200 transition-colors cursor-pointer"
+                                  title="Suspect duplicate found. Click to inspect & merge."
+                                >
+                                  <Copy className="h-2.5 w-2.5" />
+                                  Duplicate ({dupCluster.similarityScore}%)
+                                </button>
+                              )}
+
+                              {sanityIssues && sanityIssues.length > 0 && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-100 text-orange-900 border border-orange-200"
+                                  title={sanityIssues.map((s) => s.message).join("\n")}
+                                >
+                                  <AlertTriangle className="h-2.5 w-2.5 text-orange-700" />
+                                  {sanityIssues[0].message.slice(0, 26)}...
+                                </span>
+                              )}
+
+                              {eventSuggestions.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditModal(event)}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100 transition-colors cursor-pointer"
+                                  title={`${eventSuggestions.length} quality improvements suggested before editing. Click to view.`}
+                                >
+                                  <Sparkles className="h-2.5 w-2.5 text-sky-600" />
+                                  {eventSuggestions.length} tips
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
+                      </td>
 
-                    {/* Uploaded By */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5">
-                        {event.profiles?.avatar_url ? (
-                          <img
-                            src={event.profiles.avatar_url}
-                            alt=""
-                            className="h-8 w-8 rounded-full object-cover border border-slate-200 shrink-0"
-                          />
-                        ) : (
-                          <div className="h-8 w-8 rounded-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-xs border border-sky-200 shrink-0">
-                            {(event.profiles?.display_name || event.profiles?.user_name || (event.user_id ? "U" : "S")).charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        <div className="min-w-0">
-                          <p className="font-medium text-slate-900 text-xs truncate max-w-[130px]">
-                            {event.profiles?.display_name || event.profiles?.user_name || (event.user_id ? "Registered User" : "Scraper / Anon")}
+                      {/* 3-Tier Location Intelligence Column */}
+                      <td className="px-4 py-3">
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-slate-800 truncate max-w-[170px]" title={event.venue || ""}>
+                            {event.venue || "No location specified"}
                           </p>
-                          {event.profiles?.user_name ? (
-                            <p className="text-[11px] text-slate-400 truncate max-w-[130px]">
-                              @{event.profiles.user_name}
-                            </p>
-                          ) : event.website_url ? (
-                            <a
-                              href={event.website_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[10px] text-sky-600 hover:underline flex items-center gap-0.5 font-medium"
-                              title={event.website_url}
+
+                          {/* 3-Tier Badges */}
+                          {locRes?.distanceDeviationKm !== undefined && locRes.distanceDeviationKm > 15 ? (
+                            <button
+                              type="button"
+                              onClick={() => setActiveLocationEvent(event)}
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-rose-800 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200 hover:bg-rose-100 transition-colors cursor-pointer"
+                              title={`Stored coordinates conflict with venue text by ~${locRes.distanceDeviationKm} km. Click to resolve.`}
                             >
-                              Source Link <ExternalLink className="h-2.5 w-2.5" />
-                            </a>
+                              <AlertTriangle className="h-2.5 w-2.5 text-rose-600" />
+                              Mismatch (~{locRes.distanceDeviationKm} km)
+                            </button>
+                          ) : locRes?.tier === "tier_1_ok" ? (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200"
+                              title={`GPS Verified: ${event.latitude?.toFixed(4)}, ${event.longitude?.toFixed(4)}`}
+                            >
+                              <MapPin className="h-2.5 w-2.5 text-emerald-600" />
+                              Tier 1: Verified GPS
+                            </span>
+                          ) : locRes?.tier === "tier_2_auto" ? (
+                            <button
+                              type="button"
+                              onClick={() => setActiveLocationEvent(event)}
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer"
+                              title={locRes.reason}
+                            >
+                              <Sparkles className="h-2.5 w-2.5 text-blue-600" />
+                              Tier 2: Auto-Resolvable
+                            </button>
                           ) : (
-                            <span className="text-[10px] text-slate-400 font-mono">Anonymous</span>
+                            <button
+                              type="button"
+                              onClick={() => setActiveLocationEvent(event)}
+                              className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 hover:bg-amber-100 transition-colors cursor-pointer"
+                              title="Ambiguous or missing venue. Click for Admin selection."
+                            >
+                              <Compass className="h-2.5 w-2.5 text-amber-600" />
+                              Tier 3: Needs Admin Pin
+                            </button>
                           )}
                         </div>
-                      </div>
-                    </td>
+                      </td>
 
-                    {/* Uploaded At */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex flex-col">
-                        <span className="text-xs font-semibold text-slate-800 flex items-center gap-1">
-                          <Clock className="h-3 w-3 text-slate-400" />
-                          {timeAgo(event.created_at) || "Recent"}
-                        </span>
-                        <span className="text-[11px] text-slate-400 font-mono mt-0.5" title={event.created_at || ""}>
-                          {formatUploadTime(event.created_at)}
-                        </span>
-                      </div>
-                    </td>
+                      {/* Uploaded By */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          {event.profiles?.avatar_url ? (
+                            <img
+                              src={event.profiles.avatar_url}
+                              alt=""
+                              className="h-8 w-8 rounded-full object-cover border border-slate-200 shrink-0"
+                            />
+                          ) : (
+                            <div className="h-8 w-8 rounded-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-xs border border-sky-200 shrink-0">
+                              {(event.profiles?.display_name || event.profiles?.user_name || (event.user_id ? "U" : "S")).charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1">
+                              <p className="font-medium text-slate-900 text-xs truncate max-w-[120px]">
+                                {event.profiles?.display_name || event.profiles?.user_name || (event.user_id ? "Registered User" : "Scraper / Anon")}
+                              </p>
+                              {event.profiles?.is_suspended && (
+                                <span className="inline-flex items-center px-1 rounded text-[9px] font-semibold bg-rose-100 text-rose-800 border border-rose-200 shrink-0">
+                                  Suspended
+                                </span>
+                              )}
+                            </div>
+                            {event.profiles?.user_name ? (
+                              <p className="text-[11px] text-slate-400 truncate max-w-[120px]">
+                                @{event.profiles.user_name}
+                              </p>
+                            ) : event.website_url ? (
+                              <a
+                                href={event.website_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-sky-600 hover:underline flex items-center gap-0.5 font-medium"
+                                title={event.website_url}
+                              >
+                                Source Link <ExternalLink className="h-2.5 w-2.5" />
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 font-mono">Anonymous</span>
+                            )}
+                          </div>
 
-                    {/* Event Date */}
-                    <td className="px-4 py-3 text-xs whitespace-nowrap">
-                      <p className="font-medium text-slate-800">
-                        {event.date}
-                        {event.end_date && event.end_date !== event.date ? ` – ${event.end_date}` : ""}
-                      </p>
-                      <p className="text-slate-400 text-[11px] mt-0.5">{event.time || "Time TBA"}</p>
-                    </td>
+                          {/* Quick Suspend Author Action */}
+                          {event.user_id && !event.profiles?.is_suspended && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setActiveSuspendUser({
+                                  id: event.user_id!,
+                                  display_name: event.profiles?.display_name || null,
+                                  user_name: event.profiles?.user_name || null,
+                                  events_count: 1,
+                                })
+                              }
+                              title="Suspend author account & hide submissions"
+                              className="p-1 rounded text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                            >
+                              <Ban className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
 
-                    {/* Category & Price */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <Badge variant="outline" className="text-xs font-normal">
-                        {event.category || "General"}
-                      </Badge>
-                      {event.price !== null && event.price !== undefined && (
-                        <p className="text-[11px] text-slate-500 mt-1">
-                          {event.price === 0 ? "Free" : `LKR ${event.price.toLocaleString()}`}
+                      {/* Uploaded At */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex flex-col">
+                          <span className="text-xs font-semibold text-slate-800 flex items-center gap-1">
+                            <Clock className="h-3 w-3 text-slate-400" />
+                            {timeAgo(event.created_at) || "Recent"}
+                          </span>
+                          <span className="text-[11px] text-slate-400 font-mono mt-0.5" title={event.created_at || ""}>
+                            {formatUploadTime(event.created_at)}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Event Date */}
+                      <td className="px-4 py-3 text-xs whitespace-nowrap">
+                        <p className="font-medium text-slate-800">
+                          {event.date}
+                          {event.end_date && event.end_date !== event.date ? ` – ${event.end_date}` : ""}
                         </p>
-                      )}
-                    </td>
+                        <p className="text-slate-400 text-[11px] mt-0.5">{event.time || "Time TBA"}</p>
+                      </td>
 
-                    {/* Status & Featured */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <button
-                        onClick={() => toggleStatus(event.id, event.status)}
-                        disabled={actionLoadingId === event.id}
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${
-                          event.status === "hidden"
-                            ? "bg-rose-50 text-rose-700 border border-rose-200"
-                            : "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                        }`}
-                      >
-                        {event.status === "hidden" ? (
-                          <>
-                            <XCircle className="h-3 w-3" /> Hidden
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircle2 className="h-3 w-3" /> Published
-                          </>
+                      {/* Category & Price */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <Badge variant="outline" className="text-xs font-normal">
+                          {event.category || "General"}
+                        </Badge>
+                        {event.price !== null && event.price !== undefined && (
+                          <p className="text-[11px] text-slate-500 mt-1">
+                            {event.price === 0 ? "Free" : `LKR ${event.price.toLocaleString()}`}
+                          </p>
                         )}
-                      </button>
-                    </td>
+                      </td>
 
-                    {/* Actions */}
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1">
+                      {/* Status & Featured */}
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <button
-                          onClick={() => toggleFeatured(event.id, event.is_featured)}
+                          onClick={() => toggleStatus(event.id, event.status)}
                           disabled={actionLoadingId === event.id}
-                          title={event.is_featured ? "Unfeature event" : "Feature on home"}
-                          className={`p-1.5 rounded-md transition-colors ${
-                            event.is_featured
-                              ? "text-amber-500 bg-amber-50 hover:bg-amber-100"
-                              : "text-slate-300 hover:text-amber-500 hover:bg-slate-100"
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${
+                            event.status === "hidden"
+                              ? "bg-rose-50 text-rose-700 border border-rose-200"
+                              : "bg-emerald-50 text-emerald-700 border border-emerald-200"
                           }`}
                         >
-                          <Sparkles className="h-4 w-4 fill-current" />
+                          {event.status === "hidden" ? (
+                            <>
+                              <XCircle className="h-3 w-3" /> Hidden
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="h-3 w-3" /> Published
+                            </>
+                          )}
                         </button>
+                      </td>
 
-                        <Link href={`/events/${event.id}`} target="_blank">
-                          <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-slate-500 hover:text-sky-600" title="View live">
-                            <ExternalLink className="h-4 w-4" />
+                      {/* Actions */}
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1">
+                          {/* Resolve Location Icon Button */}
+                          <button
+                            type="button"
+                            onClick={() => setActiveLocationEvent(event)}
+                            title="Open Location Resolver"
+                            className="p-1.5 rounded-md text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors"
+                          >
+                            <Compass className="h-4 w-4" />
+                          </button>
+
+                          <button
+                            onClick={() => toggleFeatured(event.id, event.is_featured)}
+                            disabled={actionLoadingId === event.id}
+                            title={event.is_featured ? "Unfeature event" : "Feature on home"}
+                            className={`p-1.5 rounded-md transition-colors ${
+                              event.is_featured
+                                ? "text-amber-500 bg-amber-50 hover:bg-amber-100"
+                                : "text-slate-300 hover:text-amber-500 hover:bg-slate-100"
+                            }`}
+                          >
+                            <Sparkles className="h-4 w-4 fill-current" />
+                          </button>
+
+                          <Link href={`/events/${event.id}`} target="_blank">
+                            <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-slate-500 hover:text-sky-600" title="View live">
+                              <ExternalLink className="h-4 w-4" />
+                            </Button>
+                          </Link>
+
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => openEditModal(event)}
+                            className="h-8 w-8 p-0 text-slate-500 hover:text-sky-600 cursor-pointer"
+                            title="Edit event details"
+                          >
+                            <Edit className="h-4 w-4" />
                           </Button>
-                        </Link>
 
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => openEditModal(event)}
-                          className="h-8 w-8 p-0 text-slate-500 hover:text-sky-600 cursor-pointer"
-                          title="Edit event"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={actionLoadingId === event.id}
-                          onClick={() => deleteEvent(event.id)}
-                          className="h-8 w-8 p-0 text-slate-500 hover:text-red-600 cursor-pointer"
-                          title="Delete event"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={actionLoadingId === event.id}
+                            onClick={() => deleteEvent(event.id)}
+                            className="h-8 w-8 p-0 text-slate-500 hover:text-red-600 cursor-pointer"
+                            title="Delete event"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         )}
       </Card>
+
+      {/* Location Resolver Modal (3-Tier & Confused Handler) */}
+      <LocationResolverModal
+        isOpen={Boolean(activeLocationEvent)}
+        onClose={() => setActiveLocationEvent(null)}
+        event={activeLocationEvent}
+        onLocationSaved={handleLocationSaved}
+      />
+
+      {/* Duplicate Merge Modal */}
+      <DuplicateMergeModal
+        isOpen={Boolean(activeDuplicateCluster)}
+        onClose={() => setActiveDuplicateCluster(null)}
+        cluster={activeDuplicateCluster}
+        onMergeComplete={handleMergeComplete}
+        onDismissDuplicate={(pairKey) =>
+          setDismissedDuplicatePairs((prev) => new Set([...Array.from(prev), pairKey]))
+        }
+      />
+
+      {/* Suspend User Modal */}
+      <SuspendUserModal
+        isOpen={Boolean(activeSuspendUser)}
+        onClose={() => setActiveSuspendUser(null)}
+        user={activeSuspendUser}
+        onSuspended={(userId) => {
+          setEvents((prev) =>
+            prev.map((e) =>
+              e.user_id === userId
+                ? {
+                    ...e,
+                    status: "hidden",
+                    profiles: e.profiles ? { ...e.profiles, is_suspended: true } : e.profiles,
+                  }
+                : e
+            )
+          )
+        }}
+      />
 
       {/* Edit Event Modal */}
       {editingEvent && (
@@ -760,6 +1232,110 @@ export default function AdminEventsPage() {
             </div>
 
             <div className="space-y-4 text-sm">
+              {/* Pre-Edit Quality Improvement Assistant */}
+              {preEditSuggestions.length > 0 && (
+                <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-4 space-y-3 shadow-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-sky-200/60 pb-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-8 w-8 rounded-lg bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <Sparkles className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-xs font-bold text-sky-950">
+                            Pre-Edit Quality & Optimization Assistant
+                          </h3>
+                          <Badge className="bg-sky-200 text-sky-900 border-sky-300 text-[10px] font-semibold">
+                            {preEditSuggestions.length - appliedSuggestionIds.size} Pending
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-sky-700 mt-0.5">
+                          Review recommended fixes before editing or apply them in 1-click.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div>
+                      {appliedSuggestionIds.size < preEditSuggestions.length ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handleApplyAllSuggestions}
+                          className="bg-sky-600 hover:bg-sky-700 text-white text-xs h-7 px-3 shadow-xs font-semibold"
+                        >
+                          <Zap className="h-3 w-3 mr-1" />
+                          Auto-Apply All Suggestions
+                        </Button>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2.5 py-1 rounded-md">
+                          <Check className="h-3.5 w-3.5" /> All Suggestions Applied
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {preEditSuggestions.map((s) => {
+                      const isApplied = appliedSuggestionIds.has(s.id)
+                      return (
+                        <div
+                          key={s.id}
+                          className={`p-2.5 rounded-lg border text-xs flex items-center justify-between gap-3 transition-all ${
+                            isApplied
+                              ? "bg-white/80 border-emerald-300 text-slate-700"
+                              : s.severity === "critical"
+                              ? "bg-white border-rose-300 shadow-xs"
+                              : s.severity === "warning"
+                              ? "bg-white border-amber-300 shadow-xs"
+                              : "bg-white border-sky-200 shadow-xs"
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1 space-y-0.5">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`inline-block w-2 h-2 rounded-full shrink-0 ${
+                                  isApplied
+                                    ? "bg-emerald-500"
+                                    : s.severity === "critical"
+                                    ? "bg-rose-500"
+                                    : s.severity === "warning"
+                                    ? "bg-amber-500"
+                                    : "bg-sky-500"
+                                }`}
+                              />
+                              <span className="font-semibold text-slate-900">{s.title}</span>
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] uppercase px-1.5 py-0 font-mono text-slate-500 bg-slate-50"
+                              >
+                                {s.field}
+                              </Badge>
+                            </div>
+                            <p className="text-[11px] text-slate-600 pl-4">{s.description}</p>
+                          </div>
+
+                          {isApplied ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700 font-semibold shrink-0 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                              <Check className="h-3 w-3" /> Applied
+                            </span>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleApplySuggestion(s)}
+                              className="h-7 text-xs border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 shrink-0 font-medium"
+                            >
+                              {s.actionLabel}
+                            </Button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Uploader & Verification Audit Card */}
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
                 <div className="flex items-center justify-between">
@@ -960,72 +1536,64 @@ export default function AdminEventsPage() {
                   </div>
                 </div>
 
-                {/* Interactive Map Picker */}
+                {/* Map Picker */}
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-medium text-slate-700">
-                      Search or Click Map to Select Location
-                    </label>
-                    {editFormData.latitude != null && editFormData.longitude != null && (
-                      <button
-                        type="button"
-                        onClick={() => setEditFormData({ ...editFormData, latitude: null, longitude: null })}
-                        className="text-[11px] text-red-500 hover:text-red-700 font-medium cursor-pointer"
-                      >
-                        Clear GPS Pin
-                      </button>
-                    )}
-                  </div>
-                  <div className="rounded-lg overflow-hidden border border-slate-200 bg-white">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1.5">
+                    Click anywhere on the map to pin exact location:
+                  </label>
+                  <div className="rounded-lg overflow-hidden border border-slate-200">
                     <DynamicLocationPicker
                       value={
                         editFormData.latitude != null && editFormData.longitude != null
                           ? { lat: editFormData.latitude, lng: editFormData.longitude }
                           : null
                       }
-                      onChange={handleLocationChange}
-                      height="280px"
+                      onChange={(coords) => {
+                        if (coords) {
+                          setEditFormData({
+                            ...editFormData,
+                            latitude: coords.lat,
+                            longitude: coords.lng,
+                          })
+                        }
+                      }}
+                      height="220px"
                     />
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Use the search bar inside the map or click anywhere to reposition the pin. Dragging the pin updates coordinates automatically.
-                  </p>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Poster Image URL</label>
-                <Input
-                  value={editFormData.image_url}
-                  onChange={(e) => setEditFormData({ ...editFormData, image_url: e.target.value })}
-                  placeholder="https://..."
-                />
-              </div>
-
+              {/* Status */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Status</label>
-                <select
+                <Select
                   value={editFormData.status}
-                  onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value })}
-                  className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  onValueChange={(val) => setEditFormData({ ...editFormData, status: val })}
                 >
-                  <option value="published">Published (Visible to all)</option>
-                  <option value="hidden">Hidden / Suspended</option>
-                  <option value="draft">Draft</option>
-                </select>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="published">Published</SelectItem>
+                    <SelectItem value="hidden">Hidden / Suspended</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="draft">Draft</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t">
-              <Button variant="outline" onClick={() => setEditingEvent(null)}>
+            <div className="flex items-center justify-end gap-2 border-t pt-4">
+              <Button type="button" variant="outline" onClick={() => setEditingEvent(null)} disabled={isSavingEdit}>
                 Cancel
               </Button>
               <Button
+                type="button"
                 onClick={handleSaveEdit}
                 disabled={isSavingEdit}
-                className="bg-sky-600 hover:bg-sky-700 text-white"
+                className="bg-sky-600 hover:bg-sky-700 text-white font-medium"
               >
-                {isSavingEdit ? "Saving..." : "Save Changes"}
+                {isSavingEdit ? "Saving Changes..." : "Save Changes"}
               </Button>
             </div>
           </div>
@@ -1034,4 +1602,3 @@ export default function AdminEventsPage() {
     </div>
   )
 }
-

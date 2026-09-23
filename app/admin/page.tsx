@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useState, useCallback } from "react"
+import React, { useEffect, useState, useCallback, useMemo } from "react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import {
@@ -15,12 +15,30 @@ import {
   ShieldCheck,
   CheckCircle2,
   AlertCircle,
-  Sparkles
+  Sparkles,
+  Copy,
+  MapPin,
+  AlertTriangle,
+  Compass,
+  Zap,
+  ArrowRight,
+  Check,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import {
+  findSuspectDuplicates,
+  auditEventSanity,
+  generatePreEditSuggestions,
+  EventAuditItem,
+  DuplicateCluster,
+} from "@/lib/admin/quality-engine"
+import {
+  resolveEventLocation,
+  LocationResolutionResult,
+} from "@/lib/admin/geocoding-resolver"
 
 interface AdminStats {
   totalEvents: number
@@ -30,6 +48,14 @@ interface AdminStats {
   totalLikes: number
 }
 
+interface QualityHealthStats {
+  duplicatesCount: number
+  mismatchCount: number
+  autoLocationCount: number
+  sanityCount: number
+  suggestionsCount: number
+}
+
 interface RecentEvent {
   id: string
   title: string
@@ -37,10 +63,14 @@ interface RecentEvent {
   date: string | null
   end_date?: string | null
   venue: string | null
+  location?: string | null
+  latitude?: number | null
+  longitude?: number | null
   image_url: string | null
   is_featured?: boolean
   status?: string
   views?: number
+  created_at?: string | null
   profiles?: {
     display_name: string | null
     user_name: string | null
@@ -65,10 +95,19 @@ export default function AdminDashboardPage() {
     totalAttendees: 0,
     totalLikes: 0,
   })
+  const [healthStats, setHealthStats] = useState<QualityHealthStats>({
+    duplicatesCount: 0,
+    mismatchCount: 0,
+    autoLocationCount: 0,
+    sanityCount: 0,
+    suggestionsCount: 0,
+  })
   const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([])
   const [recentUsers, setRecentUsers] = useState<RecentUser[]>([])
+  const [allEventsForScan, setAllEventsForScan] = useState<EventAuditItem[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null)
+  const [batchResolving, setBatchResolving] = useState(false)
 
   const loadDashboardData = useCallback(async () => {
     setLoading(true)
@@ -109,7 +148,7 @@ export default function AdminDashboardPage() {
         totalLikes: likesCount || 0,
       })
 
-      // 6. Fetch recent events
+      // 6. Fetch events with location fields for real-time quality heuristics
       const { data: eventsData } = await supabase
         .from("events")
         .select(`
@@ -119,10 +158,18 @@ export default function AdminDashboardPage() {
           date,
           end_date,
           venue,
+          location,
+          latitude,
+          longitude,
+          price,
           image_url,
           is_featured,
           status,
           views,
+          created_at,
+          user_id,
+          contact_phone,
+          website_url,
           profiles:user_id (
             display_name,
             user_name,
@@ -130,10 +177,35 @@ export default function AdminDashboardPage() {
           )
         `)
         .order("created_at", { ascending: false })
-        .limit(6)
+        .limit(200)
 
       if (eventsData) {
-        setRecentEvents(eventsData as any)
+        const casted = eventsData as unknown as EventAuditItem[]
+        setAllEventsForScan(casted)
+        setRecentEvents(eventsData.slice(0, 6) as any)
+
+        // Run Quality Heuristics
+        const duplicates = findSuspectDuplicates(casted)
+        let autoCount = 0
+        let mismatch = 0
+        let sanity = 0
+        let suggestions = 0
+
+        casted.forEach((e) => {
+          const res = resolveEventLocation(e.venue, e.location, e.latitude, e.longitude)
+          if (res.tier === "tier_2_auto") autoCount++
+          if (res.distanceDeviationKm !== undefined && res.distanceDeviationKm > 15) mismatch++
+          if (auditEventSanity(e).length > 0) sanity++
+          if (generatePreEditSuggestions(e).length > 0) suggestions++
+        })
+
+        setHealthStats({
+          duplicatesCount: duplicates.length,
+          mismatchCount: mismatch,
+          autoLocationCount: autoCount,
+          sanityCount: sanity,
+          suggestionsCount: suggestions,
+        })
       }
 
       // 7. Fetch recent users
@@ -156,6 +228,52 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     loadDashboardData()
   }, [loadDashboardData])
+
+  // Batch Auto-Apply Geocoding from Dashboard
+  const handleBatchAutoApplyLocations = async () => {
+    const candidates = allEventsForScan.filter((e) => {
+      const res = resolveEventLocation(e.venue, e.location, e.latitude, e.longitude)
+      return res.tier === "tier_2_auto"
+    })
+
+    if (candidates.length === 0) return
+
+    if (
+      !confirm(
+        `⚡ Auto-Apply Geocoding: Do you want to automatically set GPS coordinates and city for all ${candidates.length} recognized venues?`
+      )
+    ) {
+      return
+    }
+
+    setBatchResolving(true)
+    const supabase = createClient()
+    let successCount = 0
+
+    try {
+      for (const e of candidates) {
+        const res = resolveEventLocation(e.venue, e.location, e.latitude, e.longitude)
+        if (res.suggestedCandidates && res.suggestedCandidates.length > 0) {
+          const best = res.suggestedCandidates[0]
+          const payload = {
+            latitude: best.lat,
+            longitude: best.lng,
+            location: best.city || e.location || "Colombo",
+          }
+          const { error } = await supabase.from("events").update(payload).eq("id", e.id)
+          if (!error) {
+            successCount++
+          }
+        }
+      }
+      alert(`Successfully auto-geocoded ${successCount} events!`)
+      loadDashboardData()
+    } catch (err: any) {
+      alert("Batch geocoding error: " + err.message)
+    } finally {
+      setBatchResolving(false)
+    }
+  }
 
   const toggleFeatured = async (eventId: string, currentStatus: boolean | undefined) => {
     setActionLoadingId(eventId)
@@ -212,7 +330,7 @@ export default function AdminDashboardPage() {
             Admin Control Center
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Real-time platform metrics, moderation, and system management.
+            Real-time platform metrics, automated quality triage, and content moderation.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -227,6 +345,132 @@ export default function AdminDashboardPage() {
           </Button>
         </div>
       </div>
+
+      {/* Quality Health & Action Center Banner */}
+      <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-900 via-slate-800 to-sky-950 text-white p-5 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-700/80 pb-3.5">
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-sky-400">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                Platform Quality & Triage Hub
+                {healthStats.duplicatesCount + healthStats.mismatchCount + healthStats.sanityCount > 0 ? (
+                  <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/40 text-[10px]">
+                    Action Required
+                  </Badge>
+                ) : (
+                  <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[10px]">
+                    System Healthy
+                  </Badge>
+                )}
+              </h2>
+              <p className="text-xs text-slate-300">
+                Automated geocoding verification, duplicate clustering, and pre-edit recommendations.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {healthStats.autoLocationCount > 0 && (
+              <Button
+                size="sm"
+                onClick={handleBatchAutoApplyLocations}
+                disabled={batchResolving}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 shadow-xs font-semibold"
+              >
+                <Zap className="h-3.5 w-3.5 mr-1" />
+                {batchResolving ? "Resolving..." : `Auto-Apply GPS (${healthStats.autoLocationCount})`}
+              </Button>
+            )}
+            <Link href="/admin/events">
+              <Button size="sm" variant="outline" className="text-xs h-8 bg-slate-800 text-white border-slate-600 hover:bg-slate-700">
+                Open Full Moderation Queue <ArrowRight className="h-3.5 w-3.5 ml-1" />
+              </Button>
+            </Link>
+          </div>
+        </div>
+
+        {/* 5 Quality Health Tiles */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-1">
+          {/* Duplicates */}
+          <Link
+            href="/admin/events?health=duplicates"
+            className="p-3 rounded-xl bg-slate-800/80 border border-slate-700/80 hover:bg-slate-800 transition-all group"
+          >
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="font-medium">Suspect Duplicates</span>
+              <Copy className="h-4 w-4 text-purple-400 group-hover:scale-110 transition-transform" />
+            </div>
+            <div className="text-xl font-bold mt-1.5 text-purple-300">
+              {healthStats.duplicatesCount}
+            </div>
+            <p className="text-[10px] text-slate-400 mt-0.5">Click to inspect & merge</p>
+          </Link>
+
+          {/* Location Mismatch */}
+          <Link
+            href="/admin/events?health=mismatch_location"
+            className="p-3 rounded-xl bg-slate-800/80 border border-slate-700/80 hover:bg-slate-800 transition-all group"
+          >
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="font-medium">Location Mismatch</span>
+              <AlertTriangle className="h-4 w-4 text-rose-400 group-hover:scale-110 transition-transform" />
+            </div>
+            <div className="text-xl font-bold mt-1.5 text-rose-300">
+              {healthStats.mismatchCount}
+            </div>
+            <p className="text-[10px] text-slate-400 mt-0.5">&gt;15km pin deviation</p>
+          </Link>
+
+          {/* Auto-Resolvable GPS */}
+          <Link
+            href="/admin/events?health=auto_location"
+            className="p-3 rounded-xl bg-slate-800/80 border border-slate-700/80 hover:bg-slate-800 transition-all group"
+          >
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="font-medium">Auto-Resolvable GPS</span>
+              <Sparkles className="h-4 w-4 text-blue-400 group-hover:scale-110 transition-transform" />
+            </div>
+            <div className="text-xl font-bold mt-1.5 text-blue-300">
+              {healthStats.autoLocationCount}
+            </div>
+            <p className="text-[10px] text-slate-400 mt-0.5">Known landmark matches</p>
+          </Link>
+
+          {/* Sanity Issues */}
+          <Link
+            href="/admin/events?health=sanity_issues"
+            className="p-3 rounded-xl bg-slate-800/80 border border-slate-700/80 hover:bg-slate-800 transition-all group"
+          >
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="font-medium">Sanity Anomalies</span>
+              <AlertCircle className="h-4 w-4 text-amber-400 group-hover:scale-110 transition-transform" />
+            </div>
+            <div className="text-xl font-bold mt-1.5 text-amber-300">
+              {healthStats.sanityCount}
+            </div>
+            <p className="text-[10px] text-slate-400 mt-0.5">Bad prices / past dates</p>
+          </Link>
+
+          {/* Pre-Edit Suggestions */}
+          <Link
+            href="/admin/events?health=suggestions"
+            className="p-3 rounded-xl bg-slate-800/80 border border-slate-700/80 hover:bg-slate-800 transition-all group col-span-2 sm:col-span-1"
+          >
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="font-medium">Pre-Edit Tips</span>
+              <Zap className="h-4 w-4 text-sky-400 group-hover:scale-110 transition-transform" />
+            </div>
+            <div className="text-xl font-bold mt-1.5 text-sky-300">
+              {healthStats.suggestionsCount}
+            </div>
+            <p className="text-[10px] text-slate-400 mt-0.5">Typography & pin fixes</p>
+          </Link>
+        </div>
+      </div>
+
 
       {/* Metric Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">

@@ -19,6 +19,8 @@ import {
   User,
   Users,
   Eye,
+  Building2,
+  Film,
 } from "lucide-react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getEventByIdServer } from "@/lib/supabase/events.server";
@@ -28,6 +30,7 @@ import { CommentsSection } from "@/components/comments-section";
 import { getCommentsForEvent } from "@/lib/supabase/comments.server";
 import { LikeButton } from "@/components/like-button";
 import { ShareButton } from "@/components/share-button";
+import { matchVenueFromText, slugifyVenue } from "@/lib/venues/venue-helper";
 
 type PageProps = { params: { id: string } };
 
@@ -118,6 +121,9 @@ export default async function EventPage({ params }: PageProps) {
     hasCoordinates && lat !== null && lng !== null
       ? `https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.01}%2C${lat - 0.01}%2C${lng + 0.01}%2C${lat + 0.01}&layer=mapnik&marker=${lat}%2C${lng}`
       : null;
+
+  const matchedVenue = matchVenueFromText(event.venue);
+  const venueSlug = matchedVenue?.slug || (event.venue ? slugifyVenue(event.venue) : null);
 
   const attendanceCounts = getAttendanceCounts(event);
   const attendanceLabel = getAttendanceLabel(attendanceCounts);
@@ -283,15 +289,43 @@ export default async function EventPage({ params }: PageProps) {
                     )}
                   </div>
 
-                  <div className="rounded-2xl border border-sky-100 bg-white p-4 shadow-sm">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-sky-700">
-                      <MapPin className="h-4 w-4" /> Where
+                  <div className="rounded-2xl border border-sky-100 bg-white p-4 shadow-sm space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-sky-700">
+                        <MapPin className="h-4 w-4" /> Where
+                      </div>
+                      {venueSlug && (
+                        <Link
+                          href={`/venues/${venueSlug}`}
+                          className="text-[11px] font-semibold text-sky-600 hover:text-sky-700 hover:underline flex items-center gap-0.5"
+                        >
+                          Check Place Schedule &rarr;
+                        </Link>
+                      )}
                     </div>
-                    <p className="mt-2 text-sm text-gray-700">
-                      {[event.venue, event.address, event.city].filter(Boolean).join(", ") || "Sri Lanka"}
-                    </p>
+                    <div>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">
+                        {event.venue || event.location || "Sri Lanka"}
+                      </p>
+                      {[event.address, event.city].filter(Boolean).length > 0 && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {[event.address, event.city].filter(Boolean).join(", ")}
+                        </p>
+                      )}
+                    </div>
+                    {venueSlug && (
+                      <div className="pt-1">
+                        <Link
+                          href={`/venues/${venueSlug}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 text-xs font-semibold transition-colors"
+                        >
+                          <Building2 className="h-3.5 w-3.5 text-sky-600" />
+                          <span>See Today &amp; Upcoming at this Place</span>
+                        </Link>
+                      </div>
+                    )}
                     {hasCoordinates && (
-                      <p className="text-xs text-gray-500">Tap &quot;View on map&quot; to see the precise pin.</p>
+                      <p className="text-xs text-gray-400">Tap &quot;View on map&quot; to see the precise pin.</p>
                     )}
                   </div>
 

@@ -84,6 +84,10 @@ function PostEventContent() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (user?.isSuspended) {
+      alert(`Your account has been suspended from publishing events.${user.suspensionReason ? ` Reason: ${user.suspensionReason}` : ""}`)
+      return
+    }
     if (!formData.title) {
       alert("Event Title is required.")
       return
@@ -161,6 +165,18 @@ function PostEventContent() {
           </div>
         </section>
         <div className="max-w-4xl mx-auto">
+          {user?.isSuspended && (
+            <div className="mb-6 p-4 rounded-xl border border-rose-200 bg-rose-50 text-rose-900 flex items-start gap-3">
+              <div className="h-6 w-6 rounded-full bg-rose-200 text-rose-700 flex items-center justify-center shrink-0 font-bold">!</div>
+              <div>
+                <h4 className="font-bold text-sm">Account Suspended</h4>
+                <p className="text-xs text-rose-700 mt-0.5">
+                  Your account has been suspended from publishing events by platform administrators.
+                  {user.suspensionReason && <span className="block mt-1 font-semibold">Reason: {user.suspensionReason}</span>}
+                </p>
+              </div>
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-2 space-y-6">
@@ -358,8 +374,8 @@ function PostEventContent() {
                     </div>
                   </CardContent>
                 </Card>
-                <Button type="submit" disabled={isSubmitting || !selectedLocation} className="w-full bg-sky-600 hover:bg-sky-700 text-white py-3">
-                  {isSubmitting ? "Posting Event..." : "Post Event"}
+                <Button type="submit" disabled={isSubmitting || !selectedLocation || Boolean(user?.isSuspended)} className="w-full bg-sky-600 hover:bg-sky-700 text-white py-3">
+                  {user?.isSuspended ? "Account Suspended" : isSubmitting ? "Posting Event..." : "Post Event"}
                 </Button>
                 {!selectedLocation && <p className="text-sm text-red-500 text-center">Please select a location to post your event</p>}
               </div>
