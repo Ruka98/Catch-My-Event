@@ -9,6 +9,7 @@ import {
 } from "./eventSelect"
 import { hydrateAttendanceForEvents } from "./attendanceHydrator"
 import type { EventAttendee, EventWithProfile, Recommendation } from "./types"
+export type { EventAttendee, EventWithProfile, Recommendation }
 
 function supabase() {
   return createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)

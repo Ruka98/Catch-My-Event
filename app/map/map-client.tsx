@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle, memo } from "react"
 import { Calendar, MapPin, Search, Crosshair, Clock, Ticket, Navigation, X, SlidersHorizontal, Scan, Building2 } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -28,7 +28,7 @@ import {
   format,
 } from "date-fns"
 import { mainCategories, getSubcategories, categoryColors } from "@/lib/constants/categories"
-import { GoogleMap, LoadScript, Marker, OverlayView } from "@react-google-maps/api"
+import { GoogleMap, LoadScript, MarkerF, OverlayView, OverlayViewF } from "@react-google-maps/api"
 
 const DATE_RANGES = [
   { label: "Today", value: "today" },
@@ -93,200 +93,219 @@ const containerStyle = {
   height: "100%",
 }
 
+const DEFAULT_MAP_CENTER = { lat: 7.8731, lng: 80.7718 }
+
+const MAP_OPTIONS: google.maps.MapOptions = {
+  zoomControl: false,
+  mapTypeControl: false,
+  streetViewControl: false,
+  fullscreenControl: false,
+  gestureHandling: "greedy",
+  styles: [
+    {
+      featureType: "poi",
+      elementType: "labels",
+      stylers: [{ visibility: "off" }],
+    },
+    {
+      featureType: "poi",
+      elementType: "geometry",
+      stylers: [{ visibility: "off" }],
+    },
+  ],
+}
+
 export interface GMapHandle {
   centerOnUser: () => void
   setView: (lat: number, lng: number, zoom: number) => void
   fitBounds: (coords: { lat: number; lng: number }[]) => void
 }
 
-const GMap = forwardRef<
-  GMapHandle,
-  {
-    events: EventWithProfile[]
-    selectedEvent: string | null
-    onEventSelect: (eventId: string | null) => void
-    userLocation: { lat: number; lng: number } | null
-  }
->(function GMap({ events, selectedEvent, onEventSelect, userLocation }, ref) {
-  const mapInstanceRef = useRef<google.maps.Map | null>(null)
-
-  const centerOnUser = useCallback(() => {
-    if (mapInstanceRef.current && userLocation) {
-      mapInstanceRef.current.panTo(userLocation)
-      mapInstanceRef.current.setZoom(13)
+const GMap = memo(
+  forwardRef<
+    GMapHandle,
+    {
+      events: EventWithProfile[]
+      selectedEvent: string | null
+      onEventSelect: (eventId: string | null) => void
+      userLocation: { lat: number; lng: number } | null
     }
-  }, [userLocation])
+  >(function GMap({ events, selectedEvent, onEventSelect, userLocation }, ref) {
+    const mapInstanceRef = useRef<google.maps.Map | null>(null)
 
-  useImperativeHandle(ref, () => ({
-    centerOnUser,
-    setView: (lat: number, lng: number, zoom: number) => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.panTo({ lat, lng })
-        mapInstanceRef.current.setZoom(zoom)
+    const centerOnUser = useCallback(() => {
+      if (mapInstanceRef.current && userLocation) {
+        mapInstanceRef.current.panTo(userLocation)
+        mapInstanceRef.current.setZoom(13)
       }
-    },
-    fitBounds: (coords: { lat: number; lng: number }[]) => {
-      if (mapInstanceRef.current && coords.length > 0) {
-        if (coords.length === 1) {
-          mapInstanceRef.current.panTo(coords[0])
-          mapInstanceRef.current.setZoom(14)
-          return
+    }, [userLocation])
+
+    useImperativeHandle(ref, () => ({
+      centerOnUser,
+      setView: (lat: number, lng: number, zoom: number) => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.panTo({ lat, lng })
+          mapInstanceRef.current.setZoom(zoom)
         }
-        const bounds = new google.maps.LatLngBounds()
-        coords.forEach((c) => bounds.extend(c))
-        mapInstanceRef.current.fitBounds(bounds, 80)
-      }
-    },
-  }))
+      },
+      fitBounds: (coords: { lat: number; lng: number }[]) => {
+        if (mapInstanceRef.current && coords.length > 0) {
+          if (coords.length === 1) {
+            mapInstanceRef.current.panTo(coords[0])
+            mapInstanceRef.current.setZoom(14)
+            return
+          }
+          const bounds = new google.maps.LatLngBounds()
+          coords.forEach((c) => bounds.extend(c))
+          mapInstanceRef.current.fitBounds(bounds, 80)
+        }
+      },
+    }))
 
-  const getEventPosition = useCallback((event: EventWithProfile) => {
-    const hasPreciseCoords =
-      event.latitude !== null &&
-      event.latitude !== undefined &&
-      event.longitude !== null &&
-      event.longitude !== undefined
+    const eventPositions = useMemo(() => {
+      const posMap = new Map<string, { lat: number; lng: number }>()
+      events.forEach((event) => {
+        const hasPreciseCoords =
+          event.latitude !== null &&
+          event.latitude !== undefined &&
+          event.longitude !== null &&
+          event.longitude !== undefined
 
-    const preciseLat = hasPreciseCoords ? Number(event.latitude) : undefined
-    const preciseLng = hasPreciseCoords ? Number(event.longitude) : undefined
-    const fallbackCoords = CITY_COORDS[event.location] || CITY_COORDS["Colombo"]
+        const preciseLat = hasPreciseCoords ? Number(event.latitude) : undefined
+        const preciseLng = hasPreciseCoords ? Number(event.longitude) : undefined
+        const fallbackCoords = CITY_COORDS[event.location] || CITY_COORDS["Colombo"]
 
-    return {
-      lat: preciseLat ?? fallbackCoords.lat,
-      lng: preciseLng ?? fallbackCoords.lng,
-    }
-  }, [])
+        posMap.set(event.id, {
+          lat: preciseLat ?? fallbackCoords.lat,
+          lng: preciseLng ?? fallbackCoords.lng,
+        })
+      })
+      return posMap
+    }, [events])
 
-  const stableMarkerOffset = useCallback(() => ({ x: -27, y: -27 }), [])
+    const stableMarkerOffset = useCallback(
+      (offsetWidth: number, offsetHeight: number) => ({
+        x: -(offsetWidth || 54) / 2,
+        y: -(offsetHeight || 54) / 2,
+      }),
+      []
+    )
 
-  return (
-    <div className="relative h-full w-full">
-      <GoogleMap
-        mapContainerStyle={containerStyle}
-        center={userLocation || { lat: 7.8731, lng: 80.7718 }}
-        zoom={8}
-        onLoad={(map) => {
-          mapInstanceRef.current = map
-        }}
-        onClick={() => onEventSelect(null)}
-        options={{
-          zoomControl: false,
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: false,
-          gestureHandling: "greedy",
-          styles: [
-            {
-              featureType: "poi",
-              elementType: "labels",
-              stylers: [{ visibility: "off" }],
-            },
-            {
-              featureType: "poi",
-              elementType: "geometry",
-              stylers: [{ visibility: "off" }],
-            },
-          ],
-        }}
-      >
-        {userLocation && (
-          <Marker
-            position={userLocation}
-            icon={{
-              path: google.maps.SymbolPath.CIRCLE,
-              scale: 8,
-              fillColor: "#4285f4",
-              fillOpacity: 1,
-              strokeColor: "white",
-              strokeWeight: 2.5,
-            }}
-          />
-        )}
+    const userLocationIcon = useMemo(
+      () => ({
+        path: typeof google !== "undefined" ? google.maps.SymbolPath.CIRCLE : 0,
+        scale: 8,
+        fillColor: "#4285f4",
+        fillOpacity: 1,
+        strokeColor: "white",
+        strokeWeight: 2.5,
+      }),
+      []
+    )
 
-        {events.map((event) => {
-          const isSelected = selectedEvent === event.id
-          const catColor = categoryColors[event.category || ""] || "#808080"
+    return (
+      <div className="relative h-full w-full">
+        <GoogleMap
+          mapContainerStyle={containerStyle}
+          center={userLocation || DEFAULT_MAP_CENTER}
+          zoom={8}
+          onLoad={(map) => {
+            mapInstanceRef.current = map
+          }}
+          onClick={() => onEventSelect(null)}
+          options={MAP_OPTIONS}
+        >
+          {userLocation && (
+            <MarkerF
+              position={userLocation}
+              icon={userLocationIcon}
+            />
+          )}
 
-          return (
-            <OverlayView
-              key={event.id}
-              position={getEventPosition(event)}
-              mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-              getPixelPositionOffset={stableMarkerOffset}
-            >
-              <div
-                className="relative cursor-pointer transition-transform duration-150 hover:scale-110 flex items-center justify-center select-none"
-                style={{
-                  width: "54px",
-                  height: "54px",
-                  willChange: "transform",
-                  transform: "translate3d(0,0,0)",
-                  WebkitBackfaceVisibility: "hidden",
-                }}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onEventSelect(event.id)
-                }}
+          {events.map((event) => {
+            const isSelected = selectedEvent === event.id
+            const catColor = categoryColors[event.category || ""] || "#808080"
+            const position = eventPositions.get(event.id)
+            if (!position) return null
+
+            return (
+              <OverlayViewF
+                key={event.id}
+                position={position}
+                mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+                getPixelPositionOffset={stableMarkerOffset}
               >
-                {event.image_url ? (
-                  <>
-                    <div
-                      className={cn(
-                        "flex items-center justify-center rounded-full overflow-hidden bg-slate-200 transition-all",
-                        isSelected ? "ring-4 ring-[#4285f4] shadow-xl scale-105" : "shadow-md"
-                      )}
-                      style={{
-                        width: "46px",
-                        height: "46px",
-                        border: "2.5px solid #ffffff",
-                      }}
-                    >
-                      <img
-                        src={event.image_url}
-                        alt={event.title}
-                        className="h-[41px] w-[41px] rounded-full object-cover"
-                        onError={(e) => {
-                          ;(e.target as HTMLImageElement).src = "/placeholder.svg"
+                <div
+                  className="relative cursor-pointer flex items-center justify-center select-none"
+                  style={{
+                    width: "54px",
+                    height: "54px",
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onEventSelect(event.id)
+                  }}
+                >
+                  {event.image_url ? (
+                    <>
+                      <div
+                        className={cn(
+                          "flex items-center justify-center rounded-full overflow-hidden bg-slate-200 shadow-md transition-transform duration-150 hover:scale-110",
+                          isSelected ? "ring-4 ring-[#4285f4] shadow-xl scale-105" : ""
+                        )}
+                        style={{
+                          width: "46px",
+                          height: "46px",
+                          border: "2.5px solid #ffffff",
+                        }}
+                      >
+                        <img
+                          src={event.image_url}
+                          alt={event.title}
+                          className="h-[41px] w-[41px] rounded-full object-cover"
+                          onError={(e) => {
+                            ;(e.target as HTMLImageElement).src = "/placeholder.svg"
+                          }}
+                        />
+                      </div>
+                      {/* Category indicator dot matching mobile app */}
+                      <div
+                        className="absolute rounded-full shadow-md"
+                        style={{
+                          bottom: "2px",
+                          right: "2px",
+                          width: "14px",
+                          height: "14px",
+                          border: "2px solid #ffffff",
+                          backgroundColor: catColor,
                         }}
                       />
-                    </div>
-                    {/* Category indicator dot matching mobile app */}
+                    </>
+                  ) : (
                     <div
-                      className="absolute rounded-full shadow-md"
+                      className={cn(
+                        "flex items-center justify-center rounded-full transition-transform duration-150 hover:scale-110 shadow-md",
+                        isSelected ? "ring-4 ring-[#4285f4] shadow-xl scale-105" : ""
+                      )}
                       style={{
-                        bottom: "2px",
-                        right: "2px",
-                        width: "14px",
-                        height: "14px",
-                        border: "2px solid #ffffff",
+                        width: "44px",
+                        height: "44px",
+                        border: "2.5px solid #ffffff",
                         backgroundColor: catColor,
                       }}
-                    />
-                  </>
-                ) : (
-                  <div
-                    className={cn(
-                      "flex items-center justify-center rounded-full transition-all shadow-md",
-                      isSelected ? "ring-4 ring-[#4285f4] shadow-xl scale-105" : ""
-                    )}
-                    style={{
-                      width: "44px",
-                      height: "44px",
-                      border: "2.5px solid #ffffff",
-                      backgroundColor: catColor,
-                    }}
-                  >
-                    <Calendar className="h-4 w-4 text-white" />
-                  </div>
-                )}
-              </div>
-            </OverlayView>
-          )
-        })}
-      </GoogleMap>
-    </div>
-  )
-
-})
+                    >
+                      <Calendar className="h-4 w-4 text-white" />
+                    </div>
+                  )}
+                </div>
+              </OverlayViewF>
+            )
+          })}
+        </GoogleMap>
+      </div>
+    )
+  })
+)
 
 GMap.displayName = "GMap"
 
@@ -558,18 +577,21 @@ export default function MapClient() {
   }, [selectedEventData, getEventCoordinates])
 
   // Event Selection Handler
-  const handleSelectEvent = (eventId: string | null) => {
-    setSelectedEvent(eventId)
-    if (eventId) {
-      const match = events.find((e) => e.id === eventId)
-      if (match) {
-        const coords = getEventCoordinates(match)
-        if (coords && mapRef.current) {
-          mapRef.current.setView(coords.lat, coords.lng, 14)
+  const handleSelectEvent = useCallback(
+    (eventId: string | null) => {
+      setSelectedEvent(eventId)
+      if (eventId) {
+        const match = events.find((e) => e.id === eventId)
+        if (match) {
+          const coords = getEventCoordinates(match)
+          if (coords && mapRef.current) {
+            mapRef.current.setView(coords.lat, coords.lng, 14)
+          }
         }
       }
-    }
-  }
+    },
+    [events, getEventCoordinates]
+  )
 
   // Suggestion Click Handler
   const handleSelectSuggestion = (item: EventWithProfile) => {
