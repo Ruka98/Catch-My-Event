@@ -32,6 +32,7 @@ import { LikeButton } from "@/components/like-button";
 import { ShareButton } from "@/components/share-button";
 import { matchVenueFromText, slugifyVenue, extractShowtimes } from "@/lib/venues/venue-helper";
 import { cn } from "@/lib/utils";
+import { EventHeroImage } from "@/components/event-hero-image";
 
 type PageProps = { params: { id: string } };
 
@@ -127,7 +128,11 @@ export default async function EventPage({ params }: PageProps) {
 
   const matchedVenue = matchVenueFromText(event.venue);
   const venueSlug = matchedVenue?.slug || (event.venue ? slugifyVenue(event.venue) : null);
-  const showtimes = extractShowtimes(event.description);
+  const isMovieOrCinema =
+    event.category?.toLowerCase() === "movies" ||
+    event.category?.toLowerCase() === "cinema" ||
+    matchedVenue?.isCinema === true;
+  const showtimes = isMovieOrCinema ? extractShowtimes(event.time) : [];
 
   const formattedDate = (() => {
     try {
@@ -262,28 +267,8 @@ export default async function EventPage({ params }: PageProps) {
         <div className="overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ring-sky-100/60">
           {/* Hero Banner with Fallback & Ambient Backing */}
           <div className="relative min-h-[280px] sm:min-h-[360px] md:min-h-[420px] w-full bg-slate-950 flex items-center justify-center overflow-hidden">
-            {/* Ambient blurred backdrop if flyer exists */}
-            {event.image_url && (
-              <img
-                src={event.image_url}
-                alt=""
-                aria-hidden="true"
-                className="absolute inset-0 h-full w-full object-cover blur-2xl opacity-40 scale-110"
-              />
-            )}
-
-            {/* Main sharp flyer image */}
-            <img
-              src={event.image_url || "/placeholder.svg"}
-              alt={event.title}
-              className="relative z-10 max-h-[420px] w-auto max-w-full object-contain mx-auto shadow-2xl py-2"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                if (!target.src.endsWith("/placeholder.svg")) {
-                  target.src = "/placeholder.svg";
-                }
-              }}
-            />
+            {/* Event Hero Flyer Image with Ambient Backing & Fallback */}
+            <EventHeroImage src={event.image_url} alt={event.title} />
 
             {/* Dark gradient overlay for text readability */}
             <div className="absolute inset-0 z-20 bg-gradient-to-t from-black/90 via-black/35 to-black/20 pointer-events-none" />
@@ -319,11 +304,11 @@ export default async function EventPage({ params }: PageProps) {
                 >
                   {priceLabel}
                 </span>
-                {postedOn && (
+                {postedOn && event.user_id && event.profiles?.display_name && !["anonymous", "anonymous organizer", "a user", "organizer"].includes(event.profiles.display_name.trim().toLowerCase()) && (
                   <span className="hidden sm:inline bg-black/40 px-3 py-1 rounded-full backdrop-blur text-white/80">
                     Posted by{" "}
                     <Link href={`/profile/${event.user_id}`} className="hover:underline font-semibold text-white">
-                      {event.profiles?.display_name || "a user"}
+                      {event.profiles.display_name}
                     </Link>
                   </span>
                 )}
@@ -354,40 +339,29 @@ export default async function EventPage({ params }: PageProps) {
                   </div>
 
                   <div className="rounded-2xl border border-sky-100 bg-white p-4 shadow-sm space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-sm font-semibold text-sky-700">
-                        <MapPin className="h-4 w-4" /> Where
-                      </div>
-                      {venueSlug && (
-                        <Link
-                          href={`/venues/${venueSlug}`}
-                          className="text-[11px] font-semibold text-sky-600 hover:text-sky-700 hover:underline flex items-center gap-0.5"
-                        >
-                          Check Place Schedule &rarr;
-                        </Link>
-                      )}
+                    <div className="flex items-center gap-2 text-sm font-semibold text-sky-700">
+                      <MapPin className="h-4 w-4" /> Where
                     </div>
                     <div>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">
-                        {event.venue || event.location || "Sri Lanka"}
-                      </p>
+                      {venueSlug ? (
+                        <Link
+                          href={`/venues/${venueSlug}`}
+                          className="mt-1 block text-sm font-semibold text-sky-700 hover:text-sky-900 hover:underline transition-colors"
+                          title="View events at this place"
+                        >
+                          {event.venue || event.location || "Sri Lanka"}
+                        </Link>
+                      ) : (
+                        <p className="mt-1 text-sm font-semibold text-gray-900">
+                          {event.venue || event.location || "Sri Lanka"}
+                        </p>
+                      )}
                       {[event.address, event.city].filter(Boolean).length > 0 && (
                         <p className="text-xs text-gray-500 mt-0.5">
                           {[event.address, event.city].filter(Boolean).join(", ")}
                         </p>
                       )}
                     </div>
-                    {venueSlug && (
-                      <div className="pt-1">
-                        <Link
-                          href={`/venues/${venueSlug}`}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 text-xs font-semibold transition-colors"
-                        >
-                          <Building2 className="h-3.5 w-3.5 text-sky-600" />
-                          <span>See Today &amp; Upcoming at this Place</span>
-                        </Link>
-                      </div>
-                    )}
                     {hasCoordinates && (
                       <p className="text-xs text-gray-400">Tap &quot;View on map&quot; to see the precise pin.</p>
                     )}
@@ -425,7 +399,7 @@ export default async function EventPage({ params }: PageProps) {
                   </div>
                 )}
 
-                {showtimes.length > 0 && (
+                {isMovieOrCinema && showtimes.length > 0 && (
                   <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5 shadow-sm">
                     <div className="flex items-center gap-2 text-sm font-bold text-amber-900 mb-2.5">
                       <Film className="h-4 w-4 text-amber-600" />

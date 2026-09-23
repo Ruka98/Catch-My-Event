@@ -126,7 +126,7 @@ const Header = () => {
                     <DropdownMenuItem asChild className="rounded-xl cursor-pointer py-2">
                       <Link href="/venues" className="flex items-center gap-2">
                         <Building2 className="h-4 w-4 text-sky-600" />
-                        <span className="text-xs font-semibold">Venues &amp; Cinemas</span>
+                        <span className="text-xs font-semibold">Explore Places</span>
                       </Link>
                     </DropdownMenuItem>
 

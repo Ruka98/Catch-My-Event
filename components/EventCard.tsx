@@ -30,7 +30,7 @@ import {
 } from "@/lib/supabase/events.client"
 import type { EventWithCounts } from "@/lib/supabase/types"
 import type { User } from "@supabase/supabase-js"
-import { slugifyVenue } from "@/lib/venues/venue-helper"
+import { slugifyVenue, matchVenueFromText } from "@/lib/venues/venue-helper"
 
 type FeedComment = {
   id: string
@@ -269,41 +269,51 @@ export function EventCard({ event, user, onUpdate, onQuickView }: EventCardProps
             </div>
           </div>
 
-          {/* User in top right corner - simplified */}
-          <div className="flex-shrink-0">
-            <div className="flex items-center gap-1.5">
-              <Avatar className="h-7 w-7 border border-sky-100">
-                <AvatarImage
-                  src={
-                    (event as any).profile_id === null
-                      ? "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80"
-                      : (event.profiles?.avatar_url ?? undefined)
-                  }
-                  alt={(event as any).profile_id === null ? "Anonymous Organizer" : (event.profiles?.display_name ?? "")}
-                />
-                <AvatarFallback>
-                  {(event as any).profile_id === null ? "A" : ((event.profiles?.display_name ?? "E").charAt(0).toUpperCase())}
-                </AvatarFallback>
-              </Avatar>
-              <div className="text-right leading-tight max-w-[110px]">
-                {(event as any).profile_id === null ? (
-                  <p className="text-xs text-gray-500 font-medium truncate">Anonymous</p>
-                ) : event.user_id && event.profiles?.display_name ? (
-                  <Link 
-                    href={`/profile/${event.user_id}`} 
-                    className="text-xs text-gray-800 hover:underline block truncate"
-                    title={event.profiles.display_name}
-                  >
-                    {event.profiles.display_name}
-                  </Link>
-                ) : (
-                  <p className="text-xs text-gray-800 truncate">
-                    {event.profiles?.display_name ?? "Organizer"}
-                  </p>
-                )}
+          {/* User in top right corner - only for real, non-anonymous profiles */}
+          {(() => {
+            const organizerName = event.profiles?.display_name?.trim()
+            const isAnonymous =
+              !organizerName ||
+              organizerName.toLowerCase() === "anonymous" ||
+              organizerName.toLowerCase() === "anonymous organizer" ||
+              organizerName.toLowerCase() === "organizer" ||
+              ((event as any).profile_id === null && !event.user_id)
+
+            if (isAnonymous || !event.profiles) return null
+
+            const profileUserId = event.user_id || (event as any).profile_id
+
+            return (
+              <div className="flex-shrink-0">
+                <div className="flex items-center gap-1.5">
+                  <Avatar className="h-7 w-7 border border-sky-100">
+                    <AvatarImage
+                      src={event.profiles.avatar_url ?? undefined}
+                      alt={organizerName}
+                    />
+                    <AvatarFallback>
+                      {organizerName.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="text-right leading-tight max-w-[110px]">
+                    {profileUserId ? (
+                      <Link 
+                        href={`/profile/${profileUserId}`} 
+                        className="text-xs text-gray-800 hover:underline block truncate"
+                        title={organizerName}
+                      >
+                        {organizerName}
+                      </Link>
+                    ) : (
+                      <p className="text-xs text-gray-800 truncate">
+                        {organizerName}
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            )
+          })()}
         </div>
       </div>
 
@@ -345,13 +355,18 @@ export function EventCard({ event, user, onUpdate, onQuickView }: EventCardProps
             {/* Clickable Venue Link */}
             <div className="flex items-center gap-1.5">
               <MapPin className="h-3.5 w-3.5 text-sky-500 shrink-0" />
-              <Link
-                href={`/venues/${slugifyVenue(event.venue || event.location || "colombo")}`}
-                className="text-xs truncate font-medium text-sky-700 hover:text-sky-900 hover:underline transition-colors"
-                title={`See events and showtimes at ${event.venue || event.location || "this venue"}`}
-              >
-                {event.venue ? `${event.venue}, ` : ""}{event.location}
-              </Link>
+              {(() => {
+                const venueSlug = matchVenueFromText(event.venue)?.slug || slugifyVenue(event.venue || event.location || "colombo");
+                return (
+                  <Link
+                    href={`/venues/${venueSlug}`}
+                    className="text-xs truncate font-medium text-sky-700 hover:text-sky-900 hover:underline transition-colors"
+                    title={`View events at ${event.venue || event.location || "this place"}`}
+                  >
+                    {event.venue ? `${event.venue}, ` : ""}{event.location}
+                  </Link>
+                );
+              })()}
             </div>
             {/* Attendance label */}
             <div className="text-xs text-gray-500 mt-0.5">{attendanceLabel}</div>

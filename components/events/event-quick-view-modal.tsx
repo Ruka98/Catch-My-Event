@@ -67,7 +67,11 @@ export function EventQuickViewModal({ event, isOpen, onClose }: EventQuickViewMo
   const matchedVenue = matchVenueFromText(event.venue || event.location)
   const venueSlug = matchedVenue?.slug || slugifyVenue(venueName)
   const isCinema = matchedVenue?.type === "cinema" || /cinema|theatre|theater|cineplex|pvr|scope/i.test(venueName)
-  const showtimes = extractShowtimes(event.description)
+  const isMovieOrCinema =
+    event.category?.toLowerCase() === "movies" ||
+    event.category?.toLowerCase() === "cinema" ||
+    isCinema
+  const showtimes = isMovieOrCinema ? extractShowtimes(event.time) : []
 
   const priceLabel =
     event.price === null || event.price === undefined
@@ -244,14 +248,14 @@ export function EventQuickViewModal({ event, isOpen, onClose }: EventQuickViewMo
                   {event.venue || event.location}
                 </div>
                 <div className="text-xs text-sky-600 font-medium mt-0.5 group-hover:underline">
-                  See today &amp; upcoming showtimes &rarr;
+                  View all events at this place &rarr;
                 </div>
               </div>
             </Link>
           </div>
 
           {/* Showtimes Pill Bar (If Cinema or has showtimes) */}
-          {showtimes.length > 0 && (
+          {isMovieOrCinema && showtimes.length > 0 && (
             <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200/80">
               <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900 mb-2">
                 <Film className="h-3.5 w-3.5 text-amber-600" />
@@ -321,12 +325,14 @@ export function EventQuickViewModal({ event, isOpen, onClose }: EventQuickViewMo
 
           {/* Footer with "Open Full Page" button */}
           <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-            <div className="text-xs text-gray-500">
-              Posted by{" "}
-              <span className="font-semibold text-gray-700">
-                {event.profiles?.display_name || "Community Member"}
-              </span>
-            </div>
+            {event.profiles?.display_name && !["anonymous", "anonymous organizer", "community member", "organizer"].includes(event.profiles.display_name.trim().toLowerCase()) ? (
+              <div className="text-xs text-gray-500">
+                Posted by{" "}
+                <span className="font-semibold text-gray-700">
+                  {event.profiles.display_name}
+                </span>
+              </div>
+            ) : <div />}
             <Link
               href={`/events/${event.id}`}
               onClick={onClose}

@@ -4,28 +4,34 @@ import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
 import { Home, MapPin, Plus, Building2, User } from "lucide-react"
 import { useAuth } from "@/components/auth-guard"
-import { useCallback } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { cn } from "@/lib/utils"
 
 const BottomNavbar = () => {
-  const pathname = usePathname()
+  const pathname = usePathname() || ""
   const router = useRouter()
-  const { user, loading } = useAuth()
+  const { user } = useAuth()
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const navItems = [
     { href: "/", icon: Home, label: "Feed", isCenter: false, isProtected: false },
     { href: "/map", icon: MapPin, label: "Map", isCenter: false, isProtected: false },
-    { href: "/post-event", icon: Plus, label: "Post", isCenter: true, isProtected: true },
-    { href: "/venues", icon: Building2, label: "Places", isCenter: false, isProtected: false },
-    { href: user ? "/profile" : "/auth/login", icon: User, label: user ? "Profile" : "Login", isCenter: false, isProtected: false },
+    ...(user
+      ? [
+          { href: "/post-event", icon: Plus, label: "Post", isCenter: true, isProtected: true },
+          { href: "/venues", icon: Building2, label: "Places", isCenter: false, isProtected: false },
+          { href: "/profile", icon: User, label: "Profile", isCenter: false, isProtected: false },
+        ]
+      : [
+          { href: "/venues", icon: Building2, label: "Places", isCenter: false, isProtected: false },
+        ]),
   ]
 
   const hiddenPaths = [
-    "/auth/login",
-    "/auth/signup",
-    "/welcome",
-    "/privacy-policy",
-    "/terms",
     "/unauthorized",
   ]
 
@@ -42,13 +48,16 @@ const BottomNavbar = () => {
     [user, router, pathname]
   )
 
-  if (hiddenPaths.includes(pathname) || loading) {
+  if (!mounted || hiddenPaths.includes(pathname)) {
     return null
   }
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-lg border-t border-slate-200/80 z-[1200] shadow-[0_-4px_20px_rgba(0,0,0,0.04)] pb-[env(safe-area-inset-bottom)]">
-      <div className="flex justify-around items-center max-w-md mx-auto h-[58px] px-2">
+    <nav
+      style={{ zIndex: 99999 }}
+      className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-lg border-t border-slate-200/80 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] pb-[env(safe-area-inset-bottom)]"
+    >
+      <div className="flex justify-around items-center max-w-lg mx-auto h-[60px] px-4">
         {navItems.map(({ href, icon: Icon, label, isCenter, isProtected }) => {
           const isActive = href === "/" ? pathname === "/" : pathname.startsWith(href)
 

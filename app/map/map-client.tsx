@@ -820,13 +820,20 @@ export default function MapClient() {
                   <span className="truncate">{formatTime(selectedEventData.time)}</span>
                 </div>
                 <div className="mb-1 flex items-center text-xs text-gray-600 sm:text-sm">
-                  <MapPin className="mr-1.5 h-3.5 w-3.5 flex-shrink-0 text-gray-500" />
-                  <span className="truncate">
-                    {selectedEventData.address ||
-                      selectedEventData.city ||
-                      selectedEventData.location ||
-                      "Location TBD"}
-                  </span>
+                  <MapPin className="mr-1.5 h-3.5 w-3.5 flex-shrink-0 text-sky-500" />
+                  <Link
+                    href={`/venues/${slugifyVenue(selectedEventData.venue || selectedEventData.location || "colombo")}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="truncate font-medium text-sky-700 hover:text-sky-900 hover:underline transition-colors"
+                    title="View events at this place"
+                  >
+                    {selectedEventData.venue
+                      ? `${selectedEventData.venue}${selectedEventData.location ? ` (${selectedEventData.location})` : ""}`
+                      : selectedEventData.address ||
+                        selectedEventData.city ||
+                        selectedEventData.location ||
+                        "Location TBD"}
+                  </Link>
                 </div>
                 <div className="mb-1 flex items-center text-xs text-gray-600 sm:text-sm">
                   <Ticket className="mr-1.5 h-3.5 w-3.5 flex-shrink-0 text-gray-500" />
@@ -839,19 +846,6 @@ export default function MapClient() {
                     <span className="inline-block rounded-full bg-[#e8f0fe] px-2.5 py-0.5 text-xs font-semibold text-[#1a73e8]">
                       {selectedEventData.subcategory || selectedEventData.category}
                     </span>
-                  </div>
-                )}
-
-                {(selectedEventData.venue || selectedEventData.location) && (
-                  <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
-                    <Link
-                      href={`/venues/${slugifyVenue(selectedEventData.venue || selectedEventData.location || "colombo")}`}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-50 text-xs font-bold text-sky-700 hover:bg-sky-100 transition-colors"
-                      title="See place events and cinema showtimes"
-                    >
-                      <Building2 className="h-3.5 w-3.5 text-sky-600" />
-                      <span>{selectedEventData.venue || selectedEventData.location} &bull; See Schedule &rarr;</span>
-                    </Link>
                   </div>
                 )}
               </div>
