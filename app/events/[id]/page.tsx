@@ -3,7 +3,6 @@
 
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -31,7 +30,8 @@ import { CommentsSection } from "@/components/comments-section";
 import { getCommentsForEvent } from "@/lib/supabase/comments.server";
 import { LikeButton } from "@/components/like-button";
 import { ShareButton } from "@/components/share-button";
-import { matchVenueFromText, slugifyVenue } from "@/lib/venues/venue-helper";
+import { matchVenueFromText, slugifyVenue, extractShowtimes } from "@/lib/venues/venue-helper";
+import { cn } from "@/lib/utils";
 
 type PageProps = { params: { id: string } };
 
@@ -127,6 +127,33 @@ export default async function EventPage({ params }: PageProps) {
 
   const matchedVenue = matchVenueFromText(event.venue);
   const venueSlug = matchedVenue?.slug || (event.venue ? slugifyVenue(event.venue) : null);
+  const showtimes = extractShowtimes(event.description);
+
+  const formattedDate = (() => {
+    try {
+      const d = new Date(event.date);
+      if (isNaN(d.getTime())) return event.date || "Date TBD";
+      let base = d.toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+      if (event.end_date && event.end_date !== event.date) {
+        const endD = new Date(event.end_date);
+        if (!isNaN(endD.getTime())) {
+          base += ` – ${endD.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}`;
+        }
+      }
+      return base;
+    } catch {
+      return event.date || "Date TBD";
+    }
+  })();
 
   const attendanceCounts = getAttendanceCounts(event);
   const attendanceLabel = getAttendanceLabel(attendanceCounts);
@@ -217,7 +244,7 @@ export default async function EventPage({ params }: PageProps) {
   const [comments, { data: likeData }] = await Promise.all([
     getCommentsForEvent(id, auth?.user?.id),
     auth?.user?.id
-      ? supabase.from("likes").select("id").eq("event_id", id).eq("user_id", auth.user.id).single()
+      ? supabase.from("likes").select("id").eq("event_id", id).eq("user_id", auth.user.id).maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
 
@@ -226,46 +253,85 @@ export default async function EventPage({ params }: PageProps) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100">
-      <main className="mx-auto max-w-5xl px-4 pb-12 pt-10">
+      <main className="mx-auto max-w-5xl px-4 pb-12 pt-6 sm:pt-10">
         <script
           type="application/ld+json"
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
         />
         <div className="overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ring-sky-100/60">
-          <div className="relative h-64 w-full sm:h-80">
-            <Image
-              src={event.image_url || "/placeholder.svg?height=480&width=960"}
+          {/* Hero Banner with Fallback & Ambient Backing */}
+          <div className="relative min-h-[280px] sm:min-h-[360px] md:min-h-[420px] w-full bg-slate-950 flex items-center justify-center overflow-hidden">
+            {/* Ambient blurred backdrop if flyer exists */}
+            {event.image_url && (
+              <img
+                src={event.image_url}
+                alt=""
+                aria-hidden="true"
+                className="absolute inset-0 h-full w-full object-cover blur-2xl opacity-40 scale-110"
+              />
+            )}
+
+            {/* Main sharp flyer image */}
+            <img
+              src={event.image_url || "/placeholder.svg"}
               alt={event.title}
-              fill
-              className="object-cover"
-              sizes="(max-width: 768px) 100vw, 768px"
-              priority
+              className="relative z-10 max-h-[420px] w-auto max-w-full object-contain mx-auto shadow-2xl py-2"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                if (!target.src.endsWith("/placeholder.svg")) {
+                  target.src = "/placeholder.svg";
+                }
+              }}
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
-            <div className="absolute inset-x-0 bottom-0 flex flex-col gap-3 p-6 text-white sm:p-8">
-              <div className="flex flex-wrap items-center gap-3 text-xs uppercase tracking-wide text-white/80">
+
+            {/* Dark gradient overlay for text readability */}
+            <div className="absolute inset-0 z-20 bg-gradient-to-t from-black/90 via-black/35 to-black/20 pointer-events-none" />
+
+            {/* Floating Top Back Pill */}
+            <div className="absolute top-4 left-4 z-30 flex items-center gap-2">
+              <Link
+                href="/"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md text-xs font-semibold shadow-md transition-all cursor-pointer"
+              >
+                <span>&larr; Back to Events</span>
+              </Link>
+            </div>
+
+            {/* Title & Metadata Overlaid at the Bottom */}
+            <div className="absolute inset-x-0 bottom-0 z-30 flex flex-col gap-2.5 p-5 text-white sm:p-8">
+              <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide text-white/90">
                 {event.category && (
-                  <Badge className="bg-white/20 px-3 py-1 text-white shadow-sm backdrop-blur">
+                  <Badge className="bg-sky-500/90 text-white px-3 py-1 shadow-sm backdrop-blur border-0 font-semibold">
                     {event.category}
                   </Badge>
                 )}
                 {event.location && (
-                  <span className="flex items-center gap-1">
-                    <MapPin className="h-3 w-3" /> {event.location}
+                  <span className="flex items-center gap-1 bg-black/40 px-3 py-1 rounded-full backdrop-blur">
+                    <MapPin className="h-3 w-3 text-sky-400" /> {event.location}
                   </span>
                 )}
+                <span
+                  className={cn(
+                    "px-3 py-1 rounded-full backdrop-blur font-bold",
+                    priceValue === 0 ? "bg-emerald-500/90 text-white" : "bg-white/20 text-white"
+                  )}
+                >
+                  {priceLabel}
+                </span>
                 {postedOn && (
-                  <span>
-                    Posted {postedOn.toLocaleDateString()} by{" "}
-                    <Link href={`/profile/${event.user_id}`} className="hover:underline">
+                  <span className="hidden sm:inline bg-black/40 px-3 py-1 rounded-full backdrop-blur text-white/80">
+                    Posted by{" "}
+                    <Link href={`/profile/${event.user_id}`} className="hover:underline font-semibold text-white">
                       {event.profiles?.display_name || "a user"}
                     </Link>
                   </span>
                 )}
               </div>
-              <h1 className="text-3xl font-bold sm:text-4xl md:text-5xl">{event.title}</h1>
-              <p className="text-sm text-white/80">{attendanceLabel}</p>
+              <h1 className="text-2xl font-black sm:text-4xl md:text-5xl leading-tight drop-shadow-md text-white">
+                {event.title}
+              </h1>
+              <p className="text-sm text-white/85">{attendanceLabel}</p>
             </div>
           </div>
 
@@ -277,16 +343,11 @@ export default async function EventPage({ params }: PageProps) {
                     <div className="flex items-center gap-2 text-sm font-semibold text-sky-700">
                       <Calendar className="h-4 w-4" /> When
                     </div>
-                    <p className="mt-2 text-sm text-gray-700">
-                      {new Date(event.date).toLocaleDateString("en-US", {
-                        weekday: "short",
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
+                    <p className="mt-2 text-sm font-bold text-gray-900">
+                      {formattedDate}
                     </p>
                     {event.time && (
-                      <p className="flex items-center gap-2 text-xs text-gray-500">
+                      <p className="flex items-center gap-2 text-xs text-gray-500 mt-1">
                         <Clock className="h-3 w-3 text-sky-600" /> {event.time}
                       </p>
                     )}
@@ -361,6 +422,26 @@ export default async function EventPage({ params }: PageProps) {
                   <div className="rounded-2xl border border-sky-100 bg-sky-50/40 p-6">
                     <h2 className="text-lg font-semibold text-gray-900">About this event</h2>
                     <p className="mt-3 text-sm leading-relaxed text-gray-700 whitespace-pre-line">{event.description}</p>
+                  </div>
+                )}
+
+                {showtimes.length > 0 && (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5 shadow-sm">
+                    <div className="flex items-center gap-2 text-sm font-bold text-amber-900 mb-2.5">
+                      <Film className="h-4 w-4 text-amber-600" />
+                      <span>Movie Screening Showtimes</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {showtimes.map((st, i) => (
+                        <span
+                          key={i}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-amber-300 text-xs font-bold text-amber-900 shadow-xs"
+                        >
+                          <Clock className="h-3 w-3 text-amber-600" />
+                          {st}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 )}
 

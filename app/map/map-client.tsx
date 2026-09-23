@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from "react"
-import { Calendar, MapPin, Search, Crosshair, Clock, Ticket, Navigation, X, SlidersHorizontal, Scan, Building2, LayoutList } from "lucide-react"
+import { Calendar, MapPin, Search, Crosshair, Clock, Ticket, Navigation, X, SlidersHorizontal, Scan, Building2 } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/components/auth-guard"
@@ -1012,19 +1012,6 @@ export default function MapClient() {
         isOpen={Boolean(quickViewEvent)}
         onClose={() => setQuickViewEvent(null)}
       />
-
-      {/* Floating List View Switcher Pill (when no event card is active) */}
-      {!selectedEvent && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
-          <Link
-            href="/"
-            className="flex items-center gap-2 px-5 py-3 rounded-full bg-gray-900/95 hover:bg-black text-white shadow-2xl backdrop-blur-md hover:scale-105 active:scale-95 transition-all text-sm font-bold tracking-wide border border-white/10 group cursor-pointer"
-          >
-            <LayoutList className="h-4 w-4 text-sky-400 group-hover:scale-110 transition-transform" />
-            <span>List View</span>
-          </Link>
-        </div>
-      )}
     </div>
   )
 }

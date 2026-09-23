@@ -229,7 +229,7 @@ export function EventCard({ event, user, onUpdate, onQuickView }: EventCardProps
     isSubmittingComment || (isLoadingComments && comments.length === 0) || !commentInput.trim()
 
   return (
-    <Card className="overflow-hidden rounded-lg border border-sky-100/80 bg-white shadow-sm transition-shadow hover:shadow-md">
+    <Card className="overflow-hidden rounded-2xl border border-sky-100/90 bg-white shadow-xs transition-all hover:shadow-md">
       {/* Header: Event Title, Category, and User in top corner */}
       <div className="p-3 pb-2">
         <div className="flex items-start justify-between gap-2">
@@ -314,20 +314,20 @@ export function EventCard({ event, user, onUpdate, onQuickView }: EventCardProps
             <button
               type="button"
               onClick={() => onQuickView(event)}
-              className="block w-full text-left cursor-pointer group overflow-hidden rounded-md"
+              className="block w-full text-left cursor-pointer group overflow-hidden rounded-xl"
             >
               <img
                 src={event.image_url}
                 alt={event.title}
-                className="block h-auto max-h-[420px] w-full object-cover rounded-md group-hover:scale-[1.01] transition-transform duration-200"
+                className="block h-auto max-h-[420px] w-full object-cover rounded-xl group-hover:scale-[1.01] transition-transform duration-200"
               />
             </button>
           ) : (
-            <Link href={`/events/${event.id}`} onClick={() => handleEventInteraction("view")} className="block">
+            <Link href={`/events/${event.id}`} onClick={() => handleEventInteraction("view")} className="block overflow-hidden rounded-xl">
               <img
                 src={event.image_url}
                 alt={event.title}
-                className="block h-auto max-h-[420px] w-full object-cover rounded-md"
+                className="block h-auto max-h-[420px] w-full object-cover rounded-xl hover:scale-[1.01] transition-transform duration-200"
               />
             </Link>
           )}
