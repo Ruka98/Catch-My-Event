@@ -7,6 +7,7 @@ import { LikeButton } from "./like-button";
 import { ShareButton } from "./share-button";
 import { useAuth } from "@/components/auth-guard";
 import { toggleEventAttendance } from "@/lib/supabase/events.client";
+import { slugifyVenue } from "@/lib/venues/venue-helper";
 import { useState } from "react";
 import {
   DropdownMenu,
@@ -71,8 +72,14 @@ export function EventCard({ event, onAttendanceUpdate, onDelete, onHide }: Event
             <Badge variant="outline">{event.category}</Badge>
         )}
         <div className="flex items-center text-sm text-gray-600">
-          <MapPin className="w-4 h-4 mr-2 flex-shrink-0" />
-          <span>{event.location || event.venue}</span>
+          <MapPin className="w-4 h-4 mr-2 flex-shrink-0 text-sky-500" />
+          <Link
+            href={`/venues/${slugifyVenue(event.venue || event.location || "colombo")}`}
+            className="hover:underline hover:text-sky-700 font-medium truncate"
+            title={`See events and showtimes at ${event.venue || event.location}`}
+          >
+            {event.venue ? `${event.venue}, ` : ""}{event.location}
+          </Link>
         </div>
         <div className="flex items-center text-sm text-gray-600">
           <Tag className="w-4 h-4 mr-2 flex-shrink-0" />

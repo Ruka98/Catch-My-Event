@@ -21,6 +21,7 @@ import {
   Eye,
   Building2,
   Film,
+  Navigation,
 } from "lucide-react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getEventByIdServer } from "@/lib/supabase/events.server";
@@ -119,7 +120,9 @@ export default async function EventPage({ params }: PageProps) {
   const lng = hasCoordinates ? Number(event.longitude) : null;
   const mapEmbedUrl =
     hasCoordinates && lat !== null && lng !== null
-      ? `https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.01}%2C${lat - 0.01}%2C${lng + 0.01}%2C${lat + 0.01}&layer=mapnik&marker=${lat}%2C${lng}`
+      ? `https://maps.google.com/maps?q=${lat},${lng}&hl=en&z=15&output=embed`
+      : event.venue || event.location
+      ? `https://maps.google.com/maps?q=${encodeURIComponent(`${event.venue || ""} ${event.location || ""}`.trim())}&hl=en&z=15&output=embed`
       : null;
 
   const matchedVenue = matchVenueFromText(event.venue);
@@ -363,9 +366,32 @@ export default async function EventPage({ params }: PageProps) {
 
                 {mapEmbedUrl && (
                   <div>
-                    <h2 className="mb-3 text-lg font-semibold text-gray-900">Location preview</h2>
-                    <div className="overflow-hidden rounded-2xl border border-sky-100 shadow-sm">
-                      <iframe title="Event location" src={mapEmbedUrl} className="h-80 w-full" allowFullScreen />
+                    <div className="mb-3 flex items-center justify-between">
+                      <h2 className="text-lg font-semibold text-gray-900">Location preview</h2>
+                      <a
+                        href={
+                          lat !== null && lng !== null
+                            ? `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
+                            : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                                `${event.venue || ""} ${event.location || ""}`.trim()
+                              )}`
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-sky-600 hover:text-sky-800 hover:underline"
+                      >
+                        <Navigation className="h-3.5 w-3.5 text-emerald-600" />
+                        <span>Get Directions</span>
+                      </a>
+                    </div>
+                    <div className="overflow-hidden rounded-2xl border border-sky-100 shadow-md">
+                      <iframe
+                        title="Event location"
+                        src={mapEmbedUrl}
+                        className="h-80 w-full border-0"
+                        loading="lazy"
+                        allowFullScreen
+                      />
                     </div>
                   </div>
                 )}

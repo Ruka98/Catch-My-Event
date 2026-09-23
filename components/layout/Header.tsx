@@ -5,7 +5,7 @@ import Image from "next/image"
 import { useAuth } from "@/components/auth-guard"
 import { Button } from "@/components/ui/button"
 
-import { ShieldCheck, LogOut, Film, MapPin } from "lucide-react"
+import { ShieldCheck, LogOut } from "lucide-react"
 
 const Header = () => {
   const { user, logout } = useAuth()
@@ -22,19 +22,6 @@ const Header = () => {
             </div>
           </Link>
 
-          <nav className="hidden md:flex items-center space-x-4 text-xs font-semibold">
-            <Link href="/events" className="text-muted-foreground hover:text-foreground transition-colors">
-              Events
-            </Link>
-            <Link href="/venues" className="text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
-              <Film className="h-3.5 w-3.5 text-sky-600" />
-              <span>Venues &amp; Cinemas</span>
-            </Link>
-            <Link href="/map" className="text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
-              <MapPin className="h-3.5 w-3.5 text-sky-600" />
-              <span>Map View</span>
-            </Link>
-          </nav>
         </div>
         <div>
           {!user ? (

@@ -1,11 +1,12 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from "react"
-import { Calendar, MapPin, Search, Crosshair, Clock, Ticket, Navigation, X, SlidersHorizontal, Scan, Building2 } from "lucide-react"
+import { Calendar, MapPin, Search, Crosshair, Clock, Ticket, Navigation, X, SlidersHorizontal, Scan, Building2, LayoutList } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/components/auth-guard"
 import { slugifyVenue } from "@/lib/venues/venue-helper"
+import { EventQuickViewModal } from "@/components/events/event-quick-view-modal"
 import {
   getEventsClient,
   type EventWithProfile,
@@ -313,6 +314,7 @@ export default function MapClient() {
   const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null)
   const [selectedPrice, setSelectedPrice] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<string | null>("this_month")
+  const [quickViewEvent, setQuickViewEvent] = useState<EventWithProfile | null>(null)
 
   // Debounce search query
   useEffect(() => {
@@ -841,13 +843,14 @@ export default function MapClient() {
                 )}
 
                 {(selectedEventData.venue || selectedEventData.location) && (
-                  <div className="mt-1.5 pt-1 border-t border-gray-100">
+                  <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
                     <Link
                       href={`/venues/${slugifyVenue(selectedEventData.venue || selectedEventData.location || "colombo")}`}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-50 text-xs font-bold text-sky-700 hover:bg-sky-100 transition-colors"
+                      title="See place events and cinema showtimes"
                     >
-                      <Building2 className="h-3.5 w-3.5" />
-                      <span>See All Events &amp; Showtimes at this Place &rarr;</span>
+                      <Building2 className="h-3.5 w-3.5 text-sky-600" />
+                      <span>{selectedEventData.venue || selectedEventData.location} &bull; See Schedule &rarr;</span>
                     </Link>
                   </div>
                 )}
@@ -871,12 +874,13 @@ export default function MapClient() {
                 <Navigation className="h-4 w-4" />
                 Navigate
               </a>
-              <Link
-                href={`/events/${selectedEventData.id}`}
-                className="flex flex-1 items-center justify-center rounded-xl bg-[#4285f4] py-2.5 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#3367d6]"
+              <button
+                type="button"
+                onClick={() => setQuickViewEvent(selectedEventData)}
+                className="flex flex-1 items-center justify-center rounded-xl bg-[#4285f4] py-2.5 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#3367d6] cursor-pointer"
               >
                 View Details
-              </Link>
+              </button>
             </div>
           </div>
         </div>
@@ -999,6 +1003,26 @@ export default function MapClient() {
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#4285f4] border-t-transparent" />
             <p className="text-sm font-medium text-gray-600">Finding amazing events near you...</p>
           </div>
+        </div>
+      )}
+
+      {/* Instant Event Quick-View Modal */}
+      <EventQuickViewModal
+        event={quickViewEvent}
+        isOpen={Boolean(quickViewEvent)}
+        onClose={() => setQuickViewEvent(null)}
+      />
+
+      {/* Floating List View Switcher Pill (when no event card is active) */}
+      {!selectedEvent && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
+          <Link
+            href="/"
+            className="flex items-center gap-2 px-5 py-3 rounded-full bg-gray-900/95 hover:bg-black text-white shadow-2xl backdrop-blur-md hover:scale-105 active:scale-95 transition-all text-sm font-bold tracking-wide border border-white/10 group cursor-pointer"
+          >
+            <LayoutList className="h-4 w-4 text-sky-400 group-hover:scale-110 transition-transform" />
+            <span>List View</span>
+          </Link>
         </div>
       )}
     </div>

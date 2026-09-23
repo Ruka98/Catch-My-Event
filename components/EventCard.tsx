@@ -30,6 +30,7 @@ import {
 } from "@/lib/supabase/events.client"
 import type { EventWithCounts } from "@/lib/supabase/types"
 import type { User } from "@supabase/supabase-js"
+import { slugifyVenue } from "@/lib/venues/venue-helper"
 
 type FeedComment = {
   id: string
@@ -42,9 +43,14 @@ function isEventWithCounts(event: EventWithProfile | EventWithCounts): event is 
   return "attendee_count" in event && "user_is_attending" in event
 }
 
-type EventCardProps = { event: EventWithProfile | EventWithCounts; user: User | null; onUpdate: () => void }
+type EventCardProps = {
+  event: EventWithProfile | EventWithCounts
+  user: User | null
+  onUpdate: () => void
+  onQuickView?: (event: EventWithProfile | EventWithCounts) => void
+}
 
-export function EventCard({ event, user, onUpdate }: EventCardProps) {
+export function EventCard({ event, user, onUpdate, onQuickView }: EventCardProps) {
   const { toast } = useToast()
   const supabaseClient = useMemo(() => createClient(), [])
 
@@ -228,13 +234,23 @@ export function EventCard({ event, user, onUpdate }: EventCardProps) {
       <div className="p-3 pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            {/* Event Title - Title-like font */}
-            <Link
-              href={`/events/${event.id}`}
-              className="block text-lg font-bold text-gray-900 hover:text-sky-700 leading-tight mb-1"
-            >
-              {event.title}
-            </Link>
+            {/* Event Title */}
+            {onQuickView ? (
+              <button
+                type="button"
+                onClick={() => onQuickView(event)}
+                className="text-left block text-lg font-bold text-gray-900 hover:text-sky-700 leading-tight mb-1 cursor-pointer transition-colors"
+              >
+                {event.title}
+              </button>
+            ) : (
+              <Link
+                href={`/events/${event.id}`}
+                className="block text-lg font-bold text-gray-900 hover:text-sky-700 leading-tight mb-1"
+              >
+                {event.title}
+              </Link>
+            )}
             
             {/* Categories */}
             <div className="flex flex-wrap gap-1">
@@ -291,15 +307,31 @@ export function EventCard({ event, user, onUpdate }: EventCardProps) {
         </div>
       </div>
 
-      {/* Poster - Keeping original size */}
+      {/* Poster */}
       {event.image_url && (
-        <Link href={`/events/${event.id}`} onClick={() => handleEventInteraction("view")} className="block px-3">
-          <img
-            src={event.image_url}
-            alt={event.title}
-            className="block h-auto max-h-[420px] w-full object-cover rounded-md"
-          />
-        </Link>
+        <div className="px-3">
+          {onQuickView ? (
+            <button
+              type="button"
+              onClick={() => onQuickView(event)}
+              className="block w-full text-left cursor-pointer group overflow-hidden rounded-md"
+            >
+              <img
+                src={event.image_url}
+                alt={event.title}
+                className="block h-auto max-h-[420px] w-full object-cover rounded-md group-hover:scale-[1.01] transition-transform duration-200"
+              />
+            </button>
+          ) : (
+            <Link href={`/events/${event.id}`} onClick={() => handleEventInteraction("view")} className="block">
+              <img
+                src={event.image_url}
+                alt={event.title}
+                className="block h-auto max-h-[420px] w-full object-cover rounded-md"
+              />
+            </Link>
+          )}
+        </div>
       )}
 
       {/* Event Details and Actions */}
@@ -310,11 +342,16 @@ export function EventCard({ event, user, onUpdate }: EventCardProps) {
               <Calendar className="h-3.5 w-3.5 text-sky-500" />
               <span className="text-xs">{dateLabel}</span>
             </div>
+            {/* Clickable Venue Link */}
             <div className="flex items-center gap-1.5">
-              <MapPin className="h-3.5 w-3.5 text-sky-500" />
-              <span className="text-xs truncate">
+              <MapPin className="h-3.5 w-3.5 text-sky-500 shrink-0" />
+              <Link
+                href={`/venues/${slugifyVenue(event.venue || event.location || "colombo")}`}
+                className="text-xs truncate font-medium text-sky-700 hover:text-sky-900 hover:underline transition-colors"
+                title={`See events and showtimes at ${event.venue || event.location || "this venue"}`}
+              >
                 {event.venue ? `${event.venue}, ` : ""}{event.location}
-              </span>
+              </Link>
             </div>
             {/* Attendance label */}
             <div className="text-xs text-gray-500 mt-0.5">{attendanceLabel}</div>
@@ -333,11 +370,23 @@ export function EventCard({ event, user, onUpdate }: EventCardProps) {
               <Users className="mr-1 h-3.5 w-3.5" />
               {isGoing ? "Going" : "Go"}
             </Button>
-            <Button asChild size="sm" variant="outline" className="h-8 px-3 text-xs font-medium">
-              <Link href={`/events/${event.id}`} onClick={() => handleEventInteraction("view")}>
+            {onQuickView ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 px-3 text-xs font-medium hover:bg-sky-50 hover:text-sky-700 hover:border-sky-300"
+                onClick={() => onQuickView(event)}
+              >
                 Details
-              </Link>
-            </Button>
+              </Button>
+            ) : (
+              <Button asChild size="sm" variant="outline" className="h-8 px-3 text-xs font-medium">
+                <Link href={`/events/${event.id}`} onClick={() => handleEventInteraction("view")}>
+                  Details
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
       </div>

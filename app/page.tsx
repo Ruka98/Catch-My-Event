@@ -27,6 +27,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { useAuth } from "@/components/auth-guard"
 import { EventCard } from "@/components/EventCard"
+import { EventQuickViewModal } from "@/components/events/event-quick-view-modal"
 import { useRouter } from "next/navigation"
 
 // ✅ IMPORTANT: use the client-only helpers (no next/headers inside these)
@@ -68,6 +69,7 @@ export default function HomePage() {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showFilters, setShowFilters] = useState(false)
+  const [quickViewEvent, setQuickViewEvent] = useState<EventWithProfile | null>(null)
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
 
@@ -407,6 +409,7 @@ export default function HomePage() {
                     event={event}
                     user={user}
                     onUpdate={loadEvents}
+                    onQuickView={setQuickViewEvent}
                   />
                 ))}
               </div>
@@ -426,6 +429,24 @@ export default function HomePage() {
           </div>
         </section>
       </main>
+
+      {/* Instant Event Quick-View Modal */}
+      <EventQuickViewModal
+        event={quickViewEvent}
+        isOpen={Boolean(quickViewEvent)}
+        onClose={() => setQuickViewEvent(null)}
+      />
+
+      {/* Floating Map View Switcher Pill (Airbnb / Luma style) */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40">
+        <Link
+          href="/map"
+          className="flex items-center gap-2 px-5 py-3 rounded-full bg-gray-900/95 hover:bg-black text-white shadow-2xl backdrop-blur-md hover:scale-105 active:scale-95 transition-all text-sm font-bold tracking-wide border border-white/10 group cursor-pointer"
+        >
+          <MapPin className="h-4 w-4 text-sky-400 group-hover:scale-110 transition-transform" />
+          <span>Map View</span>
+        </Link>
+      </div>
     </div>
   )
 }
