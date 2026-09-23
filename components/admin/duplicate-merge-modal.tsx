@@ -74,7 +74,35 @@ export function DuplicateMergeModal({
     setIsMerging(true)
     const supabase = createClient()
     try {
-      // 1. Transfer any event attendees to primary
+      const overrideTitle = selectedFields.titleSourceId === chosenDuplicate.id && chosenDuplicate.title ? chosenDuplicate.title : null
+      const overrideImage = selectedFields.imageSourceId === chosenDuplicate.id && chosenDuplicate.image_url ? chosenDuplicate.image_url : null
+      const overrideVenue = selectedFields.venueSourceId === chosenDuplicate.id && chosenDuplicate.venue ? chosenDuplicate.venue : null
+      const overrideLat = selectedFields.venueSourceId === chosenDuplicate.id && chosenDuplicate.latitude ? chosenDuplicate.latitude : null
+      const overrideLng = selectedFields.venueSourceId === chosenDuplicate.id && chosenDuplicate.longitude ? chosenDuplicate.longitude : null
+
+      // 1. Try atomic server-side RPC first (bypasses client RLS and runs atomically)
+      const { data: rpcData, error: rpcErr } = await supabase.rpc("admin_merge_events", {
+        primary_id: chosenPrimary.id,
+        duplicate_id: chosenDuplicate.id,
+        override_title: overrideTitle,
+        override_image: overrideImage,
+        override_venue: overrideVenue,
+        override_lat: overrideLat,
+        override_lng: overrideLng,
+        hard_delete: false,
+      })
+
+      if (!rpcErr && rpcData?.success) {
+        onMergeComplete(chosenPrimary.id, chosenDuplicate.id)
+        onClose()
+        return
+      }
+
+      if (rpcErr) {
+        console.warn("admin_merge_events RPC not found or returned error, attempting direct client fallback:", rpcErr)
+      }
+
+      // 2. Direct client fallback (requires RLS admin policies)
       try {
         const { data: dupAttendees } = await supabase
           .from("event_attendees")
@@ -93,7 +121,6 @@ export function DuplicateMergeModal({
         console.warn("Could not migrate attendees:", e)
       }
 
-      // 2. Transfer likes to primary
       try {
         const { data: dupLikes } = await supabase
           .from("likes")
@@ -112,19 +139,14 @@ export function DuplicateMergeModal({
         console.warn("Could not migrate likes:", e)
       }
 
-      // 3. Apply any selected field overrides to primary (e.g. better image or cleaner title)
       const updates: Record<string, any> = {}
-      if (selectedFields.imageSourceId === chosenDuplicate.id && chosenDuplicate.image_url) {
-        updates.image_url = chosenDuplicate.image_url
-      }
-      if (selectedFields.titleSourceId === chosenDuplicate.id && chosenDuplicate.title) {
-        updates.title = chosenDuplicate.title
-      }
-      if (selectedFields.venueSourceId === chosenDuplicate.id && chosenDuplicate.venue) {
-        updates.venue = chosenDuplicate.venue
-        if (chosenDuplicate.latitude && chosenDuplicate.longitude) {
-          updates.latitude = chosenDuplicate.latitude
-          updates.longitude = chosenDuplicate.longitude
+      if (overrideImage) updates.image_url = overrideImage
+      if (overrideTitle) updates.title = overrideTitle
+      if (overrideVenue) {
+        updates.venue = overrideVenue
+        if (overrideLat && overrideLng) {
+          updates.latitude = overrideLat
+          updates.longitude = overrideLng
         }
       }
 
@@ -132,7 +154,6 @@ export function DuplicateMergeModal({
         await supabase.from("events").update(updates).eq("id", chosenPrimary.id)
       }
 
-      // 4. Hide the duplicate event
       const { error: hideErr } = await supabase
         .from("events")
         .update({ status: "hidden" })
@@ -143,7 +164,7 @@ export function DuplicateMergeModal({
       onMergeComplete(chosenPrimary.id, chosenDuplicate.id)
       onClose()
     } catch (err: any) {
-      alert("Error merging events: " + (err.message || "Failed"))
+      alert("Error merging events: " + (err.message || "Failed. Ensure migration 012_admin_duplicate_handling_and_rls.sql is applied."))
     } finally {
       setIsMerging(false)
     }
@@ -161,12 +182,26 @@ export function DuplicateMergeModal({
     setIsHardDeleting(true)
     const supabase = createClient()
     try {
+      // 1. Try atomic server-side RPC first
+      const { error: rpcErr } = await supabase.rpc("admin_delete_event", {
+        target_event_id: dupId,
+      })
+
+      if (!rpcErr) {
+        onMergeComplete(primaryEvent.id, dupId)
+        onClose()
+        return
+      }
+
+      console.warn("admin_delete_event RPC not found or returned error, falling back to direct delete:", rpcErr)
+
+      // 2. Direct client fallback
       const { error } = await supabase.from("events").delete().eq("id", dupId)
       if (error) throw error
       onMergeComplete(primaryEvent.id, dupId)
       onClose()
     } catch (err: any) {
-      alert("Failed to delete event: " + (err.message || "Unknown error"))
+      alert("Failed to delete event: " + (err.message || "Unknown error. Ensure migration 012_admin_duplicate_handling_and_rls.sql is applied."))
     } finally {
       setIsHardDeleting(false)
     }

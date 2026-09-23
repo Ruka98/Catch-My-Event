@@ -124,16 +124,31 @@ function EditEventContent({ eventId }: { eventId: string }) {
     if (location) {
       setLocationError("")
       try {
-        const response = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${location.lat}&lon=${location.lng}`,
-        )
-        const data = await response.json()
-        if (data.display_name) {
-          setFormData((prev) => ({ ...prev, venue: data.display_name }))
+        // 1. Primary: Use Google Maps JavaScript Geocoder if available in browser
+        if (typeof window !== "undefined" && (window as any).google?.maps?.Geocoder) {
+          const geocoder = new (window as any).google.maps.Geocoder()
+          geocoder.geocode({ location }, (results: any, status: string) => {
+            if (status === "OK" && results && results[0]?.formatted_address) {
+              setFormData((prev) => ({ ...prev, venue: results[0].formatted_address }))
+            }
+          })
+          return
+        }
+
+        // 2. Secondary: Use Google Geocoding API if key is available
+        const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+        if (apiKey) {
+          const response = await fetch(
+            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${location.lat},${location.lng}&key=${apiKey}`
+          )
+          const data = await response.json()
+          if (data.results?.[0]?.formatted_address) {
+            setFormData((prev) => ({ ...prev, venue: data.results[0].formatted_address }))
+            return
+          }
         }
       } catch (error) {
-        console.error("Error fetching address:", error)
-        // Do not clear venue on error in edit mode, just log it
+        console.error("Error fetching Google address:", error)
       }
     }
   }

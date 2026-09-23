@@ -66,7 +66,7 @@ export function LocationResolverModal({
   const [cityName, setCityName] = useState("")
   const [customSearch, setCustomSearch] = useState("")
   const [searchResults, setSearchResults] = useState<Array<{ name: string; lat: number; lng: number; city: string }>>([])
-  const [isSearchingOSM, setIsSearchingOSM] = useState(false)
+  const [isSearchingLocation, setIsSearchingLocation] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
@@ -106,31 +106,58 @@ export function LocationResolverModal({
     }
   }
 
-  const searchOpenStreetMap = async (query: string) => {
+  const searchLocation = async (query: string) => {
     if (!query.trim()) return
-    setIsSearchingOSM(true)
+    setIsSearchingLocation(true)
     try {
       const q = query.toLowerCase().includes("sri lanka") ? query : `${query}, Sri Lanka`
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=4`,
-        { headers: { "User-Agent": "CatchMyEventAdmin/1.0" } }
-      )
-      const data = await res.json()
-      if (Array.isArray(data)) {
-        const parsed = data
-          .map((item: any) => ({
-            name: item.display_name,
-            lat: parseFloat(item.lat),
-            lng: parseFloat(item.lon),
-            city: item.address?.city || item.address?.town || item.address?.suburb || "Sri Lanka",
-          }))
-          .filter((item) => isWithinSriLanka(item.lat, item.lng))
-        setSearchResults(parsed)
+
+      // 1. Primary: Use Google Maps JavaScript Geocoder if loaded in window
+      if (typeof window !== "undefined" && (window as any).google?.maps?.Geocoder) {
+        const geocoder = new (window as any).google.maps.Geocoder()
+        geocoder.geocode({ address: q, componentRestrictions: { country: "LK" } }, (results: any, status: string) => {
+          setIsSearchingLocation(false)
+          if (status === "OK" && results) {
+            const parsed = results
+              .map((item: any) => ({
+                name: item.formatted_address,
+                lat: item.geometry?.location?.lat(),
+                lng: item.geometry?.location?.lng(),
+                city: item.address_components?.find((c: any) => c.types.includes("locality") || c.types.includes("administrative_area_level_2"))?.long_name || "Sri Lanka",
+              }))
+              .filter((item: any) => isWithinSriLanka(item.lat, item.lng))
+            setSearchResults(parsed)
+          } else {
+            setSearchResults([])
+          }
+        })
+        return
+      }
+
+      // 2. Secondary: Google Maps Geocoding API if key configured
+      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+      if (apiKey) {
+        const res = await fetch(
+          `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&components=country:LK&key=${apiKey}`
+        )
+        const data = await res.json()
+        if (data.results && Array.isArray(data.results)) {
+          const parsed = data.results
+            .map((item: any) => ({
+              name: item.formatted_address,
+              lat: item.geometry?.location?.lat,
+              lng: item.geometry?.location?.lng,
+              city: item.address_components?.find((c: any) => c.types.includes("locality") || c.types.includes("administrative_area_level_2"))?.long_name || "Sri Lanka",
+            }))
+            .filter((item: any) => isWithinSriLanka(item.lat, item.lng))
+          setSearchResults(parsed)
+          return
+        }
       }
     } catch (e) {
-      console.warn("OSM Search Error:", e)
+      console.warn("Google Location Search Error:", e)
     } finally {
-      setIsSearchingOSM(false)
+      setIsSearchingLocation(false)
     }
   }
 
@@ -289,7 +316,7 @@ export function LocationResolverModal({
                   placeholder="e.g. Lotus Tower, Nelum Pokuna, Kandy Lake..."
                   value={customSearch}
                   onChange={(e) => setCustomSearch(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && searchOpenStreetMap(customSearch)}
+                  onKeyDown={(e) => e.key === "Enter" && searchLocation(customSearch)}
                   className="pl-8 text-xs h-9 bg-white"
                 />
               </div>
@@ -297,11 +324,11 @@ export function LocationResolverModal({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => searchOpenStreetMap(customSearch)}
-                disabled={isSearchingOSM || !customSearch.trim()}
+                onClick={() => searchLocation(customSearch)}
+                disabled={isSearchingLocation || !customSearch.trim()}
                 className="h-9 text-xs"
               >
-                {isSearchingOSM ? "Searching..." : "Search Places"}
+                {isSearchingLocation ? "Searching..." : "Search Places"}
               </Button>
             </div>
 
